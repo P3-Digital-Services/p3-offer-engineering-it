@@ -1,0 +1,129 @@
+--- 
+
+- name: Ensure group "app" exists
+  ansible.builtin.group:
+    name: app
+    state: present
+
+- name: Creating app user
+  ansible.builtin.user:
+    name: app
+    uid: 1040
+    group: app
+    create_home: yes
+    shell: /bin/bash
+
+
+- name: Set environment variables
+  ansible.builtin.lineinfile:
+    path: /etc/environment
+    line: "{{ item.key }}={{ lookup('env', item.value) }}"
+  with_items:
+    - { key: 'ZENDESK_SUBDOMAIN', value: 'ZENDESK_SUBDOMAIN' }
+    - { key: 'ZENDESK_EMAIL', value: 'ZENDESK_EMAIL' }
+    - { key: 'ZENDESK_API_TOKEN', value: 'ZENDESK_API_TOKEN' }
+    - { key: 'ZENDESK_GROUP', value: 'ZENDESK_GROUP' }
+    - { key: 'ZENDESK_TICKET_URL', value: 'ZENDESK_TICKET_URL' }
+    - { key: 'ZENDESK_SEARCH_URL', value: 'ZENDESK_SEARCH_URL' }
+    - { key: 'JIRA_EMAIL', value: 'JIRA_EMAIL' }
+    - { key: 'JIRA_API_TOKEN', value: 'JIRA_API_TOKEN' }
+    - { key: 'JIRA_SEARCH_URL', value: 'JIRA_SEARCH_URL' }
+    - { key: 'JIRA_STATUS_FIELD_ID', value: 'JIRA_STATUS_FIELD_ID' }
+    - { key: 'JIRA_ISSUE_KEY_FIELD_ID', value: 'JIRA_ISSUE_KEY_FIELD_ID' }
+    - { key: 'SLACK_BOT_TOKEN', value: 'SLACK_BOT_TOKEN' }
+    - { key: 'SLACK_APP_TOKEN', value: 'SLACK_APP_TOKEN' }
+    - { key: 'GROUP_ID_SLACK', value: 'GROUP_ID_SLACK' }
+
+
+          
+- name: Generate Self-signed SSL Certificate
+  command: |
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /home/app/selfsigned.key \
+    -out /home/app/selfsigned.crt \
+    -subj "/CN=localhost"
+
+- name: Change file ownership, group and permissions
+  ansible.builtin.file:
+    path: /home/app/selfsigned.key
+    mode: '0644'
+
+- name: Change file ownership, group and permissions
+  ansible.builtin.file:
+    path: /home/app/selfsigned.crt
+    mode: '0644'
+
+- name: Copy github python file
+  ansible.builtin.copy:
+    src: ./git_sync/git-sync.py
+    dest: /home/app
+    owner: app
+    group: app
+    mode: '755'
+  register: gitsyncservice
+
+- name: Copy github service to /lib/systemd/system
+  ansible.builtin.copy:
+    src: ./git_sync/git-sync.service
+    dest: /lib/systemd/system
+    owner: root
+    group: root
+    mode: '644'
+  register: gitsyncservice
+
+- name: Enable and start git-sync.service
+  systemd:
+    name: git-sync
+    state: restarted
+    enabled: yes
+  when: gitsyncservice.changed
+
+- name: Copy jira python file
+  ansible.builtin.copy:
+    src: ./jira_sync/jira-sync.py
+    dest: /home/app
+    owner: app
+    group: app
+    mode: '755'
+  register: jirasyncservice
+
+- name: Copy jira service to /lib/systemd/system
+  ansible.builtin.copy:
+    src: ./jira_sync/jira-sync.service
+    dest: /lib/systemd/system
+    owner: root
+    group: root
+    mode: '644'
+  register: jirasyncservice
+
+- name: Enable and start jira-sync.service
+  systemd:
+    name: jira-sync
+    state: restarted
+    enabled: yes
+  when: jirasyncservice.changed
+
+- name: Copy slack python file
+  ansible.builtin.copy:
+    src: ./slack_sync/slack-sync.py
+    dest: /home/app
+    owner: app
+    group: app
+    mode: '755'
+  register: slackesyncservice
+
+- name: Copy slack service to /lib/systemd/system
+  ansible.builtin.copy:
+    src: ./slack_sync/slack-sync.service
+    dest: /lib/systemd/system
+    owner: root
+    group: root
+    mode: '644'
+  register: slackesyncservice
+
+- name: Enable and start slack-sync.service
+  systemd:
+    name: slack-sync
+    state: restarted
+    enabled: yes
+  when: slackesyncservice.changed

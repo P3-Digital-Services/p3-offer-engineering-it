@@ -1,0 +1,24 @@
+---
+- name: Update the apt package list
+  apt:
+    update_cache: yes
+
+- name: Install Dependencies
+  apt:
+    name:
+      - wget
+      - curl
+    state: present
+
+- name: Install Python3 And Pip
+  apt:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - python3
+    - python3-pip
+
+    
+- name: Install Python packages system-wide with override
+  ansible.builtin.command:
+    cmd: /usr/bin/python3 -m pip install flask substring requests slack_bolt aiohttp --break-system-packages

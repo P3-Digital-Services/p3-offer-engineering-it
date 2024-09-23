@@ -1,0 +1,15 @@
+[Unit]
+Description=Jira Service Management Syncronization Service
+After=syslog.target network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=900
+User=app
+Group=app
+ExecStart=python3 /home/app/jira-sync.py
+EnvironmentFile=/etc/environment
+
+[Install]
+WantedBy=multi-user.target

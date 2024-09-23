@@ -1,0 +1,12 @@
+---
+- name: PLAYBOOKS FOR SERVER
+  hosts: server_vm
+  become: true
+  tasks:
+    - name: Include Dependencies Tasks
+      include_tasks: dependencies/tasks.yml
+            
+    - name: Include Configuration Tasks
+      include_tasks: configuration/tasks.yml
+
+   
