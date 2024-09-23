@@ -596,11 +596,16 @@ From Web Admin UI, select Worker, you will see the worker is connected
 
 ## 6. Create user, target
 
-### 6.1. Create Authentication method
+### 6.1 Create new Org
 
-Go to `Generated Scope Org`
+We will create a new `org` with name `P3`
 
-![Go to Generated Scope Org](./images/image-20.png)
+![alt text](./images/image-42.png)
+
+### 6.2. Create Authentication method
+
+Go to `P3` org
+![Go to `P3` org](./images/image-20.png)
 
 Select `Auth Methods` and create a new **Password Auth Methods**
 
@@ -610,34 +615,51 @@ Then make `password-auth` as primary Auth Methods
 
 ![primary Auth Methods](./images/image-23.png)
 
-### 6.2. Create new User
+
+### 6.3 Create new Project
+
+We will create new project named `Project-01`
+![create new project](./images/image-36.png)
+
+### 6.4. Create new User
 
 Go to **Users** and create new one
-
 ![create new user](./images/image-22.png)
 
-### 6.3. Create new account
-In Auth Methods, Create new account
-![Create new account](./images/image23.png)
 
-Assign account to user
-![Assign account](./images/image24.png)
+### 6.5. Add new target
 
-### 6.4. Add Role to project
-In Projects > Roles > Add Pricipals > Add account created in 6.3
-![Alt text](./images/image25.png)
+Next, we  will create new target, that will be pointed to dummy website with domain `test.example.com`
+
+Go to `Project-01`, then create new **Targets**
+
+![Add new target](./images/image-37.png)
 
 
-1. Connect to target
+### 6.6. Connect the target
+
 Login in CLI
-    ```
-    boundary authenticate password -auth-method-id <method-id> --tls-insecure
-    ```
+```
+export BOUNDARY_ADDR=https://boundary.example.com
+boundary authenticate password -auth-method-id <method-id> --tls-insecure
+```
+Please get auth method id that we got from step **6.2**
+
+![alt text](./images/image-38.png)
+
 Save token to env
+```bash
+export BOUNDARY_TOKEN=<token>
+```
 Connect to target
-    ```
-    boundary connect -target-id <target-id> -token env://BOUNDARY_TOKEN --tls-insecure
-    ```
+```bash
+boundary connect -target-id <target-id> -token env://BOUNDARY_TOKEN --tls-insecure
+```
+![Connect to target](./images/image-39.png)
+
+Check session on Web UI
+
+![alt text](./images/image-40.png)
 
 <div class="page"/>
 
@@ -723,3 +745,5 @@ Run test command
 ```
 
 ![alt text](./images/image-34.jpg)
+
+As you can see, we can connect to the Boundary without entering the authen method id
