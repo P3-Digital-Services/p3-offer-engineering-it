@@ -1,0 +1,5 @@
+actions_ver: 2.319.1
+actions_repo: REPLACEURLHERE
+actions_token: REPLACETOKENHERE
+jenkins_ver: 2.462.2
+java_ver: 17.0.11

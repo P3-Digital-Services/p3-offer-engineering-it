@@ -1,0 +1,11 @@
+variable "location"                  {}
+variable "tags"                      {}
+variable "name"                      {}
+variable "resource_group_name"       {}
+variable "subnet_id"                 {}
+variable "size"                      {}
+variable "identity_ids"              {}
+variable "admin_username"            {}
+variable "source_image_id"           {}
+variable "public_ip_address_id"      {}
+variable "network_security_group_id" {}

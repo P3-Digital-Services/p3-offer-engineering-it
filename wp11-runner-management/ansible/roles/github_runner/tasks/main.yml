@@ -1,0 +1,44 @@
+- name: Check if Github Actions runner exists
+  win_stat:
+    path: C:\actions-runner
+  register: runner_exists
+  changed_when: no
+
+- name: Download Github Actions runner
+  win_get_url:
+    url: "https://github.com/actions/runner/releases/download/v{{ actions_ver }}/actions-runner-win-x64-{{ actions_ver }}.zip"
+    dest: C:\temp\actions-runner.zip
+  when: not runner_exists.stat.exists
+
+- name: Extract Github Actions runner
+  win_unzip:
+    src: C:\temp\actions-runner.zip
+    dest: C:\actions-runner
+  when: not runner_exists.stat.exists
+
+- name: Check if Actions runner is configured
+  win_stat:
+    path: C:\actions-runner\config.lock
+  register: runner_config
+  changed_when: no
+
+- name: Setup Github Actions runner
+  win_command:
+    argv:
+      - C:\actions-runner\config.cmd
+      - --unattended
+      - --url
+      - "{{ actions_repo }}"
+      - --token
+      - "{{ actions_token }}"
+      - --runasservice
+      - --windowslogonaccount
+      - "NT AUTHORITY\NETWORK SERVICE"
+      - --windowslogonpassword
+      - " "
+  when: not runner_config.stat.exists
+
+- name: Lock Github Actions config
+  win_file:
+    path: C:\actions-runner\config.lock
+    state: touch

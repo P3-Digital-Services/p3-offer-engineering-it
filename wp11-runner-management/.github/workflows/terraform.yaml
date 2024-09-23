@@ -1,0 +1,27 @@
+name: Deploy Terraform Infrastructure
+
+on: workflow_dispatch
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        enable-AzPSSession: true
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        ref: develop
+    - name: Install Terraform modules/plugins
+      run: terraform init
+      working-directory: ./terraform
+    - name: Validate Terraform files
+      run: terraform validate
+      working-directory: ./terraform
+    - name: Deploy Terraform resources
+      run: terraform apply -auto-approve
+      working-directory: ./terraform
+      timeout-minutes: 180 #3h

@@ -1,0 +1,38 @@
+name: Deploy Packer image
+
+on: workflow_dispatch
+
+env:
+  PKR_VAR_buildResourceGroupName: ${{ vars.buildResourceGroupName }}
+  PKR_VAR_imageSku:               ${{ vars.imageSku }}
+  PKR_VAR_vmSize:                 ${{ vars.vmSize }}
+  PKR_VAR_winrmUsername:          ${{ vars.winrmUsername }}
+  PKR_VAR_managedImageName:       ${{ vars.managedImageName }}
+
+jobs:
+  packer:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        enable-AzPSSession: true
+    - name: Download Packer
+      uses: hashicorp/setup-packer@v3.1.0
+      with:
+        version: latest
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        ref: develop
+    - name: Install Packer plugins
+      run: packer init .
+      working-directory: ./packer
+    - name: Validate Packer files
+      run: packer validate .
+      working-directory: ./packer
+    - name: Create and Deploy Packer image
+      run: packer build .
+      working-directory: ./packer
+      timeout-minutes: 240 #4h

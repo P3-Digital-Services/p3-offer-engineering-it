@@ -1,0 +1,57 @@
+name: Build app
+
+on: workflow_dispatch
+
+env:
+  CONTAINER_REGISTRY:     ${{ vars.CONTAINER_REGISTRY }}
+  BUILDRESOURCEGROUPNAME: ${{ vars.BUILDRESOURCEGROUPNAME }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        ref: develop
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: 17
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+    - name: Build with Gradle
+      run: bash gradlew build --no-daemon
+      working-directory: ./kotlin
+    - name: Docker login
+      uses: docker/login-action@v3.3.0
+      with:
+        registry: ${{ vars.CONTAINER_REGISTRY }}
+        username: ${{ secrets.CONTAINER_USERNAME }}
+        password: ${{ secrets.CONTAINER_PASSWORD }}
+        logout:   true
+    - name: Build and push Docker images
+      uses: docker/build-push-action@v6.7.0
+      with:
+        context: ./kotlin
+        tags:    ${{ vars.CONTAINER_REGISTRY }}/demoapp:latest
+        push:    true
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        enable-AzPSSession: true
+    - name: Attach ACR to AKS - for proper image pull inside containers
+      uses: azure/cli@v2
+      with:
+        azcliversion: latest
+        inlineScript: |
+          export CONTAINER_REGISTRY=${CONTAINER_REGISTRY%%.azurecr.io}
+          az aks update -n $BUILDRESOURCEGROUPNAME-aks -g $BUILDRESOURCEGROUPNAME --attach-acr $CONTAINER_REGISTRY
+    - name: Log into AKS cluster
+      uses: azure/cli@v2
+      with:
+        azcliversion: latest
+        inlineScript: |
+          az aks get-credentials -n $BUILDRESOURCEGROUPNAME-aks -g $BUILDRESOURCEGROUPNAME --overwrite-existing

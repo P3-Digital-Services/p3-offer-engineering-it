@@ -1,0 +1,15 @@
+environment: demo
+containerPort: 8080
+image:
+  repository: cariadrunnermanagementdemoacr.azurecr.io/demoapp
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer
+
+demoapp:
+  replicaCount: 2
+  resources:
+    limits:
+      memory: 1024Mi

@@ -1,0 +1,7 @@
+- name: Configure VM
+  hosts: runner
+
+  roles:
+  - github_runner
+  - post_install
+  - jenkins

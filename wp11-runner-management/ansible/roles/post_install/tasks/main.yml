@@ -1,0 +1,62 @@
+
+- name: Create .docker directory if not exist
+  win_file:
+    path: "{{ ansible_facts['user_dir'] }}\\.docker\\"
+    state: directory
+
+- name: Stat HyperV conf lock
+  ansible.windows.win_stat:
+    path: "{{ ansible_facts['user_dir'] }}\\.docker\\hyperv.lock"
+  register: hyperv_check
+  changed_when: no
+
+- name: Configure Docker HyperV
+  win_copy:
+    content: |
+      { "builder": { "gc": { "defaultKeepStorage": "20GB", "enabled": true } }, "exec-opts": [ "isolation=hyperv" ], "experimental": false }
+    dest: "{{ ansible_facts['user_dir'] }}\\.docker\\daemon.json"
+  register: docker_hyperv
+  when: not hyperv_check.stat.exists
+
+- name: Restart Docker service
+  ansible.windows.win_service:
+    name: com.docker.service
+    state: restarted
+  when: docker_hyperv is not skipped
+
+- name: Create HyperV conf lock
+  ansible.windows.win_file:
+    path: "{{ ansible_facts['user_dir'] }}\\.docker\\hyperv.lock"
+    state: touch
+  when: not hyperv_check.stat.exists
+
+- name: Install InfluxDB2
+  win_chocolatey:
+    name: influxdb2
+    state: present
+    package_params:
+      /Service
+
+- name: Check if InfluxDB CLI exists
+  win_stat:
+    path: "{{ ansible_facts['env']['windir'] }}\\System32\\influx.exe"
+  register: influxcli_ins
+  changed_when: no
+
+- name: Download InfluxDB CLI
+  win_get_url:
+    url: "https://dl.influxdata.com/influxdb/releases/influxdb2-client-{{ influxcli_ver }}_windows_amd64.zip"
+    dest: "{{ ansible_facts['env']['TEMP'] }}/influxcli.zip"
+  when: not influxcli_ins.stat.exists
+
+- name: Unzip InfluxDB CLI
+  win_unzip:
+    src: "{{ ansible_facts['env']['TEMP'] }}/influxcli.zip"
+    dest: "{{ ansible_facts['env']['TEMP'] }}/influxcli"
+  when: not influxcli_ins.stat.exists
+
+- name: Add InfluxDB CLI
+  ansible.windows.win_powershell:
+    script: |
+      Copy-Item $env:TEMP\influxcli\influx $env:WINDIR\System32\influx.exe
+  when: not influxcli_ins.stat.exists

@@ -1,0 +1,2 @@
+[runner]
+runner ansible_host=REPLACEIPHERE ansible_connection=winrm ansible_port=5986 ansible_user=vmadmin ansible_password=REPLACEPASSHERE ansible_winrm_server_cert_validation=ignore
