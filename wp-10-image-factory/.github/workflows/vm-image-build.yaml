@@ -1,0 +1,186 @@
+name: Azure Virtual Machine Images
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/vm-image-build.yaml'
+      - 'vmimage/*.bicep'
+
+env:
+  RESOURCE_GROUP: 'rg-cariad-image-factory-demo'
+  BUILDER_RESOURCE_GROUP: 'rg-cariad-build-vm-image-demo'
+  TEST_VM_NAME: test-vm
+  VNET_NAME: ${{ vars.VNET_NAME }}
+  SUBNET_NAME: ${{ vars.SUBNET_NAME }}
+  USER_ASSIGNED_IDENTITY_ID: ${{ vars.USER_ASSIGNED_IDENTITY_ID }}
+  IMAGE_DEFINITION_NAME: ${{ vars.IMAGE_DEFINITION_NAME }}
+  IMAGE_TEMPLATE_NAME: ${{ vars.IMAGE_TEMPLATE_NAME }}
+  GALLERY_NAME: ${{ vars.GALLERY_NAME }}
+  IMAGE_VERSION: ${{ vars.IMAGE_VERSION }}
+jobs:
+  build-vm-image:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Login to Azure using Managed Identity
+        uses: azure/login@v1
+        with:
+          auth-type: IDENTITY
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+
+      - name: Create Image Builder template
+        run: |
+          az deployment group create \
+                --resource-group $BUILDER_RESOURCE_GROUP \
+                --template-file vmimage/ubuntu-linux-vm-22.04.bicep \
+                --parameters \
+                  imageTemplateName=$IMAGE_TEMPLATE_NAME \
+                  galleryName=$GALLERY_NAME \
+                  galleryResourceGroup=$RESOURCE_GROUP \
+                  imageVersion=$IMAGE_VERSION \
+                  userAssignedIdentityId=$USER_ASSIGNED_IDENTITY_ID \
+                  imageDefinitionName=$IMAGE_DEFINITION_NAME
+
+      - name: Run Image Builder
+        run: |
+          az image builder run \
+            --resource-group $BUILDER_RESOURCE_GROUP \
+            --name $IMAGE_TEMPLATE_NAME
+
+      - name: Wait for Image Builder to complete
+        run: |
+          az image builder wait \
+            --resource-group $BUILDER_RESOURCE_GROUP \
+            --name $IMAGE_TEMPLATE_NAME \
+            --custom "lastRunStatus.runState!='Running'"
+
+      - name: Get Image Version details
+        run: |          
+          IMAGE_ID=$(az sig image-version show \
+            --resource-group $RESOURCE_GROUP \
+            --gallery-name $GALLERY_NAME \
+            --gallery-image-definition $IMAGE_DEFINITION_NAME \
+            --gallery-image-version $IMAGE_VERSION \
+            --query id -o tsv)
+          echo "Image ID: $IMAGE_ID"
+          echo "IMAGE_ID=$IMAGE_ID" >> $GITHUB_ENV
+
+      - name: Get VNet and Subnet IDs
+        run: |
+          VNET_ID=$(az network vnet show --resource-group $RESOURCE_GROUP --name $VNET_NAME --query id -o tsv)
+          SUBNET_ID=$(az network vnet subnet show --resource-group $RESOURCE_GROUP --vnet-name $VNET_NAME --name $SUBNET_NAME --query id -o tsv)
+          echo "VNET_ID=$VNET_ID" >> $GITHUB_ENV
+          echo "SUBNET_ID=$SUBNET_ID" >> $GITHUB_ENV
+
+      - name: Create test VM
+        run: |
+          az vm create \
+            --resource-group $BUILDER_RESOURCE_GROUP \
+            --name $TEST_VM_NAME \
+            --image $IMAGE_ID \
+            --admin-username azureuser \
+            --subnet $SUBNET_ID \
+            --generate-ssh-keys
+
+      - name: Install Syft on VM
+        run: |
+          echo "Installing Syft on VM..."
+          az vm run-command invoke \
+            --resource-group $BUILDER_RESOURCE_GROUP \
+            --name $TEST_VM_NAME \
+            --command-id RunShellScript \
+            --scripts "curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin"            
+
+      - name: Run syft scan and download SBOM
+        run: |
+          VM_IP=$(az vm show -g $BUILDER_RESOURCE_GROUP -n $TEST_VM_NAME -d --query privateIps -o tsv)
+          # Run syft scan via SSH
+          ssh -o StrictHostKeyChecking=no azureuser@$VM_IP "syft scan dir:/var/lib/dpkg -o spdx-json > /tmp/bin_sbom.spdx.json"
+
+          # Download SBOM file using SCP
+          scp -o StrictHostKeyChecking=no azureuser@$VM_IP:/tmp/bin_sbom.spdx.json ./bin_sbom.spdx.json
+
+      - name: Run Grype scan
+        run: |
+          echo "Running Grype scan..."
+          grype sbom:./bin_sbom.spdx.json -o json > grype_results.json
+
+      - name: Upload SBOM file
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-file
+          path: ./bin_sbom.spdx.json
+      
+      - name: Upload Grype results
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-results
+          path: ./grype_results.json
+
+      - name: Run test scripts and capture results
+        run: |
+          mkdir -p test_results
+          for script in vmimage/tests/*.sh
+            do
+              script_name=$(basename "$script" .sh)
+              echo "Running test script: $script"
+              output_file="test_results/${script_name}_output.txt"
+              
+              echo "Executing $script_name..." > "$output_file"
+              
+              if az vm run-command invoke \
+                --resource-group $BUILDER_RESOURCE_GROUP \
+                --name $TEST_VM_NAME \
+                --command-id RunShellScript \
+                --scripts "@$script" \
+                >> "$output_file" 2>&1; then
+                echo "Script $script_name executed successfully"
+              else
+                echo "Error executing script $script_name"
+              fi
+              
+              echo "Content of $output_file:"
+              cat "$output_file"
+              echo "--------------------------------"
+            done
+
+      - name: Zip test results
+        run: |
+          zip -r test_results.zip test_results
+          echo "Test results zipped to test_results.zip"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test_results.zip
+
+      - name: Clean up resources
+        if: always()
+        run: |
+          echo "Cleaning up Image Builder template..."
+          az image builder delete \
+            --resource-group $BUILDER_RESOURCE_GROUP \
+            --name $IMAGE_TEMPLATE_NAME
+
+          echo "Cleaning up test VM..."
+          az vm delete \
+            --resource-group $BUILDER_RESOURCE_GROUP \
+            --name $TEST_VM_NAME \
+            --yes
+
+      - name: Error Logging
+        if: failure()
+        run: |
+          echo "Deployment or testing failed. Gathering error information..."
+          az deployment operation group list \
+            --resource-group $BUILDER_RESOURCE_GROUP \
+            --name imagebuilder-template \
+            --query "[?properties.provisioningState=='Failed'].{Operation:properties.targetResource.resourceType, FailureMessage:properties.statusMessage}" \
+            --output table
+

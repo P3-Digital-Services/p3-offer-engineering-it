@@ -1,0 +1,83 @@
+name: Container Images
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/docker-build.yaml'
+      - 'docker/**'
+
+env:
+  # These variables should be set in the repository's GitHub settings under "Settings" -> "Secrets and variables" -> "Actions" -> "Variables"
+  ACR_NAME: ${{ vars.ACR_NAME }} # Azure Container Registry Name ( e.g. 'acrcariadimagefactorydemo')
+  APP_NAME: ${{ vars.APP_NAME }} # Docker image name / App name   ( e.g. 'my-python-app')
+  DOCKER_IMAGE_TAG: ${{ vars.ACR_NAME }}.azurecr.io/${{ vars.APP_NAME }}:${{ github.sha }}
+  PLATFORMS: ${{ vars.PLATFORMS }} # Example: 'linux/amd64,linux/arm64'
+
+jobs:
+  build:
+    runs-on: self-hosted
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Login to Azure using Managed Identity
+      uses: azure/login@v1
+      with:
+        auth-type: IDENTITY
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+
+    - name: Docker Login using Managed Identity
+      run: az acr login --name ${{ env.ACR_NAME }}
+
+    - name: Build Docker image (without pushing)
+      uses: docker/build-push-action@v3
+      with:
+        context: docker
+        push: false
+        tags: ${{ env.DOCKER_IMAGE_TAG }}
+        platforms: ${{ env.PLATFORMS }}
+
+    - name: Export Docker image environment variable
+      run: echo "DOCKER_IMAGE=${{ env.DOCKER_IMAGE_TAG }}" >> $GITHUB_ENV
+
+    - name: Run all Docker image test scripts
+      run: |
+        for script in ./docker/custom_tests/*.sh; do
+          chmod +x "$script"
+          echo "Running $script..."
+          "$script"
+        done
+
+    - name: Scan Docker image for vulnerabilities
+      uses: anchore/scan-action@v3
+      with:
+        image: ${{ env.DOCKER_IMAGE_TAG }}
+        fail-build: false
+
+    - name: Create Software Bill of Materials (SBOM)
+      uses: anchore/sbom-action@v0
+      with:
+        format: spdx-json
+        output-file: "${{ github.event.repository.name }}-sbom.spdx.json"
+
+    - name: Build and push the Docker image
+      uses: docker/build-push-action@v3
+      with:
+        context: docker
+        push: true
+        tags: ${{ env.DOCKER_IMAGE_TAG }}
+        platforms: ${{ env.PLATFORMS }}
