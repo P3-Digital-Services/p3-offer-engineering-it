@@ -1,0 +1,42 @@
+[Unit]
+Description=Keycloak Server
+Documentation=https://www.keycloak.org/
+After=network-online.target firewalld.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+EnvironmentFile=/opt/keycloak/conf/kc.env
+ExecStart=/opt/keycloak/bin/kc.sh start
+
+ExecReload=/bin/kill -s HUP $MAINPID
+
+TimeoutSec=300
+RestartSec=5
+Restart=always
+
+StartLimitBurst=3
+StartLimitInterval=10s
+
+# Set system resource limits
+LimitNOFILE=65536
+LimitNPROC=1024
+
+# CPU and memory restrictions
+CPUQuota=100%
+MemoryMax=2G
+
+# Ensure systemd does not reset Keycloak's cgroups
+Delegate=yes
+
+# Kill only the Keycloak process, not all processes in the cgroup
+KillMode=process
+
+# Set a lower OOM score to prevent Keycloak from being killed by the OOM killer
+OOMScoreAdjust=-1000
+
+[Install]
+WantedBy=multi-user.target

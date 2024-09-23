@@ -1,0 +1,30 @@
+---
+# Preparation
+- name: Download Keycloak zip
+  ansible.builtin.get_url:
+    url: "https://github.com/keycloak/keycloak/releases/download/{{ kc_version }}/keycloak-{{ kc_version }}.zip"
+    dest: "/tmp/keycloak-{{ kc_version }}.zip"
+
+- name: Create a temporary directory to unzip Keycloak
+  ansible.builtin.file:
+    path: /tmp/keycloak_unzip
+    state: directory
+    mode: '0755'
+
+- name: Unzip Keycloak
+  ansible.builtin.unarchive:
+    src: "/tmp/keycloak-{{ kc_version }}.zip"
+    dest: "/tmp"
+    remote_src: yes
+
+# Final Keycloak location
+- name: Create directory for Keycloak
+  ansible.builtin.file:
+    path: /opt/keycloak
+    state: directory
+    mode: '744'
+
+- name: Move to Keycloak directory
+  shell: |
+    rm -rf /opt/keycloak/*
+    mv /tmp/keycloak-{{ kc_version }}/* /opt/keycloak/

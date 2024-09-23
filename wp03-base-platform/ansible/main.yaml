@@ -1,0 +1,58 @@
+---
+- name: PLAYBOOKS FOR FLASK APP
+  hosts: webapp_vm
+  become: true
+  tasks:
+    - name: Run Flask App
+      include_tasks: flask/tasks.yaml
+
+- name: PLAYBOOKS FOR KEYCLOAK
+  hosts: keycloak_vms
+  become: true
+  # serial: 1
+  vars:
+    java_version: "{{ lookup('env', 'JAVA_VERSION') }}"
+    kc_version: "{{ lookup('env', 'KC_VERSION') }}"
+    server_domain: "{{ lookup('env', 'SERVER_DOMAIN') }}"
+    admin_username: "{{ lookup('env', 'KEYCLOAK_ADMIN_USERNAME') }}"
+    admin_password: "{{ lookup('env', 'KEYCLOAK_ADMIN_PASSWORD') }}"
+    kc_db_url: "{{ lookup('env', 'KC_DB_URL') }}"
+    kc_db_name: "{{ lookup('env', 'KC_DB_NAME') }}"
+    kc_db_username: "{{ lookup('env', 'KC_DB_USERNAME') }}"
+    kc_db_password: "{{ lookup('env', 'KC_DB_PASSWORD') }}"
+  tasks:
+    - name: Install dependencies
+      include_tasks: keycloak/dependencies/tasks.yaml
+
+    - name: Download Keycloak
+      include_tasks: keycloak/download_tasks.yaml
+
+    - name: Setup Keycloak
+      include_tasks: keycloak/setup_tasks.yaml
+
+- name: PLAYBOOKS FOR NGINX
+  hosts: webapp_vm
+  become: true
+  tasks:
+    - name: Setup Nginx
+      include_tasks: nginx/tasks.yaml
+
+- name: PLAYBOOKS FOR KEYCLOAK RESTART
+  hosts: keycloak_vms
+  become: true
+  serial: 1
+  tasks:
+    - name: Restart Keycloak
+      include_tasks: keycloak/restart_tasks.yaml
+
+- name: PLAYBOOKS FOR KEYCLOAK REALM
+  hosts: keycloak_vms
+  become: true
+  serial: 1
+  vars:
+    server_domain: "{{ lookup('env', 'SERVER_DOMAIN') }}"
+    admin_username: "{{ lookup('env', 'KEYCLOAK_ADMIN_USERNAME') }}"
+    admin_password: "{{ lookup('env', 'KEYCLOAK_ADMIN_PASSWORD') }}"
+  tasks:
+    - name: Configure Keycloak Realm
+      include_tasks: keycloak/realm_tasks.yaml

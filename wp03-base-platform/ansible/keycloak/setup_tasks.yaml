@@ -1,0 +1,144 @@
+---
+# Keycloak build config setup
+- name: Copy Infinispan configuration file
+  ansible.builtin.copy:
+    content: |
+      <infinispan
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="urn:infinispan:config:15.0 http://www.infinispan.org/schemas/infinispan-config-15.0.xsd"
+        xmlns="urn:infinispan:config:15.0">
+
+          <jgroups>
+              <stack name="jdbc-ping-tcp" extends="tcp">
+              <JDBC_PING connection_driver="org.postgresql.Driver"
+                          connection_username="{{ kc_db_username }}"
+                          connection_password="{{ kc_db_password }}"
+                          connection_url="jdbc:postgresql://{{ kc_db_url }}:5432/{{ kc_db_name }}"
+                          initialize_sql="CREATE TABLE IF NOT EXISTS JGROUPSPING (own_addr varchar(200) NOT NULL, cluster_name varchar(200) NOT NULL, ping_data BYTEA, constraint PK_JGROUPSPING PRIMARY KEY (own_addr, cluster_name));"
+                          info_writer_sleep_time="500"
+                          remove_all_data_on_view_change="true"
+                          stack.combine="REPLACE"
+                          stack.position="MPING" />
+              </stack>
+          </jgroups>
+
+          <cache-container name="keycloak">
+              <transport lock-timeout="60000"/>
+              <local-cache name="realms" simple-cache="true">
+                  <encoding>
+                      <key media-type="application/x-java-object"/>
+                      <value media-type="application/x-java-object"/>
+                  </encoding>
+                  <memory max-count="10000"/>
+              </local-cache>
+              <local-cache name="users" simple-cache="true">
+                  <encoding>
+                      <key media-type="application/x-java-object"/>
+                      <value media-type="application/x-java-object"/>
+                  </encoding>
+                  <memory max-count="10000"/>
+              </local-cache>
+              <distributed-cache name="sessions" owners="2">
+                  <expiration lifespan="-1"/>
+              </distributed-cache>
+              <distributed-cache name="authenticationSessions" owners="2">
+                  <expiration lifespan="-1"/>
+              </distributed-cache>
+              <distributed-cache name="offlineSessions" owners="2">
+                  <expiration lifespan="-1"/>
+              </distributed-cache>
+              <distributed-cache name="clientSessions" owners="2">
+                  <expiration lifespan="-1"/>
+              </distributed-cache>
+              <distributed-cache name="offlineClientSessions" owners="2">
+                  <expiration lifespan="-1"/>
+              </distributed-cache>
+              <distributed-cache name="loginFailures" owners="2">
+                  <expiration lifespan="-1"/>
+              </distributed-cache>
+              <local-cache name="authorization" simple-cache="true">
+                  <encoding>
+                      <key media-type="application/x-java-object"/>
+                      <value media-type="application/x-java-object"/>
+                  </encoding>
+                  <memory max-count="10000"/>
+              </local-cache>
+              <replicated-cache name="work">
+                  <expiration lifespan="-1"/>
+              </replicated-cache>
+              <local-cache name="keys" simple-cache="true">
+                  <encoding>
+                      <key media-type="application/x-java-object"/>
+                      <value media-type="application/x-java-object"/>
+                  </encoding>
+                  <expiration max-idle="3600000"/>
+                  <memory max-count="1000"/>
+              </local-cache>
+              <distributed-cache name="actionTokens" owners="2">
+                  <encoding>
+                      <key media-type="application/x-java-object"/>
+                      <value media-type="application/x-java-object"/>
+                  </encoding>
+                  <expiration max-idle="-1" lifespan="-1" interval="300000"/>
+                  <memory max-count="-1"/>
+              </distributed-cache>
+          </cache-container>
+      </infinispan>
+
+    dest: "/opt/keycloak/conf/infinispan.xml"
+    mode: '644'
+
+- name: Copy Keycloak build environment file
+  ansible.builtin.copy:
+    content: |
+      export KC_METRICS_ENABLED=true
+      export KC_HEALTH_ENABLED=true
+      export KC_CACHE_CONFIG_FILE=infinispan.xml
+    dest: "/tmp/kc.build.env"
+    mode: '644'
+
+- name: Build Keycloak libs/deps
+  ansible.builtin.shell: |
+    source /tmp/kc.build.env
+    /opt/keycloak/bin/kc.sh build
+
+# Keycloak runtime config setup
+- name: Copy Keycloak start environment file
+  ansible.builtin.copy:
+    content: |
+      KEYCLOAK_ADMIN={{ admin_username }}
+      KEYCLOAK_ADMIN_PASSWORD={{ admin_password }}
+
+      KC_DB=postgres
+      KC_DB_URL_HOST={{ kc_db_url }}
+      KC_DB_URL_PORT=5432
+      KC_DB_URL_DATABASE={{ kc_db_name }}
+      KC_DB_USERNAME={{ kc_db_username }}
+      KC_DB_PASSWORD={{ kc_db_password }}
+
+      KC_HOSTNAME=https://{{ server_domain }}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
+      KC_HOSTNAME_STRICT_HTTPS=false
+      KC_HOSTNAME_STRICT=false
+
+      KC_HTTP_ENABLED=true
+
+      KC_CACHE=ispn
+      KC_CACHE_STACK=jdbc-ping-tcp
+      KC_CACHE_CONFIG_FILE=infinispan.xml
+
+      KC_PROXY_HEADERS=xforwarded
+      KC_PROXY=edge
+    dest: "/opt/keycloak/conf/kc.env"
+    mode: '600'
+
+# Set system service
+- name: Copy Keycloak system service file
+  ansible.builtin.copy:
+    src: "./keycloak/conf/keycloak.service"
+    dest: "/etc/systemd/system/keycloak.service"
+    mode: '644'
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: yes

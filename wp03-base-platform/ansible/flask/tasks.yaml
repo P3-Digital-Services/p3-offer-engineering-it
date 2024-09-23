@@ -1,0 +1,78 @@
+---
+- name: Set variables
+  set_fact:
+    server_domain: "{{ lookup('env', 'SERVER_DOMAIN') }}"
+
+- name: Update and upgrade apt packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+
+- name: Install Python3 and pip
+  apt:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - python3
+    - python3-pip
+
+- name: Install required Python libraries
+  pip:
+    name:
+      - flask
+
+- name: Copy Flask app file
+  copy:
+    src: ../flask/flask_app.py
+    dest: /opt/flask_app.py
+
+- name: Create a systemd service for Flask app
+  copy:
+    dest: /etc/systemd/system/flask_app.service
+    content: |
+      [Unit]
+      Description=Flask Application
+
+      [Service]
+      ExecStart=/usr/bin/python3 /opt/flask_app.py
+      Restart=always
+      User=root
+      WorkingDirectory=/opt
+      Environment=PYTHONUNBUFFERED=1
+      Environment=SERVER_DOMAIN={{ server_domain }}
+
+      [Install]
+      WantedBy=multi-user.target
+  vars:
+    server_domain: "{{ lookup('env', 'SERVER_DOMAIN') }}"
+
+- name: Reload systemd daemon
+  command: systemctl daemon-reload
+
+- name: Stop Flask app service
+  systemd:
+    name: flask_app
+    state: stopped
+    enabled: yes
+
+- name: Start Flask app service
+  systemd:
+    name: flask_app
+    state: started
+    enabled: yes
+
+- name: Instance health check
+  uri:
+    url: "http://localhost:4200"
+    method: GET
+    return_content: yes
+  register: healthcheck_response
+  until: healthcheck_response.status == 200
+  retries: 15
+  delay: 20
+  ignore_errors: yes
+
+- name: Health check failed
+  when: healthcheck_response.status != 200
+  fail:
+    msg: "Health check failed after 300 seconds. Status: {{ healthcheck_response.status }}"

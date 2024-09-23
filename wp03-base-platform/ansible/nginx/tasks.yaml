@@ -1,0 +1,113 @@
+---
+- name: Set backend_ips and server_domain
+  set_fact:
+    backend_ips: "{{ lookup('env', 'KEYCLOAK_PRIVATE_IPS').split(',') }}"
+    server_domain: "{{ lookup('env', 'SERVER_DOMAIN') }}"
+
+- name: Update and upgrade apt packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+
+- name: Install NGINX
+  apt:
+    name: nginx
+    state: present
+    update_cache: yes
+
+- name: Remove default NGINX config
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+
+- name: Copy default NGINX config
+  template:
+    src: nginx/templates/default_nginx.conf.j2
+    dest: /etc/nginx/sites-available/nginx.conf
+  vars:
+    backend_ips: "{{ lookup('env', 'KEYCLOAK_PRIVATE_IPS').split(',') }}"
+    server_domain: "{{ lookup('env', 'SERVER_DOMAIN') }}"
+
+- name: Verify default NGINX config
+  command: cat /etc/nginx/sites-available/nginx.conf
+  register: nginx_config_content
+
+# - name: Debug NGINX config content
+#   debug:
+#     var: nginx_config_content.stdout
+
+- name: Enable default NGINX config
+  file:
+    src: /etc/nginx/sites-available/nginx.conf
+    dest: /etc/nginx/sites-enabled/nginx.conf
+    state: link
+
+- name: Test NGINX configuration
+  command: nginx -t
+
+- name: Reload NGINX
+  service:
+    name: nginx
+    state: reloaded
+
+- name: Install Certbot
+  apt:
+    name: certbot
+    state: present
+    update_cache: yes
+
+- name: Ensure webroot directory exists
+  file:
+    path: /var/www/certbot
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Check if SSL certificate exists
+  stat:
+    path: /etc/letsencrypt/live/{{ lookup('env', 'SERVER_DOMAIN') }}/fullchain.pem
+  register: ssl_cert
+
+- name: Obtain SSL certificate using Certbot
+  command: >
+    certbot certonly --webroot --webroot-path /var/www/certbot
+    --email not@real.email
+    --agree-tos --no-eff-email --force-renewal
+    -d {{ lookup('env', 'SERVER_DOMAIN') }}
+  when: not ssl_cert.stat.exists
+  register: certbot_result
+
+# - name: Debug Certbot result
+#   debug:
+#     var: certbot_result
+
+- name: Copy SSL NGINX config
+  template:
+    src: nginx/templates/ssl_nginx.conf.j2
+    dest: /etc/nginx/sites-available/nginx.conf
+  vars:
+    backend_ips: "{{ lookup('env', 'KEYCLOAK_PRIVATE_IPS').split(',') }}"
+    server_domain: "{{ lookup('env', 'SERVER_DOMAIN') }}"
+
+- name: Verify SSL NGINX config
+  command: cat /etc/nginx/sites-available/nginx.conf
+  register: ssl_nginx_config_content
+
+# - name: Debug SSL NGINX config content
+#   debug:
+#     var: ssl_nginx_config_content.stdout
+
+- name: Enable SSL NGINX config
+  file:
+    src: /etc/nginx/sites-available/nginx.conf
+    dest: /etc/nginx/sites-enabled/nginx.conf
+    state: link
+
+- name: Test NGINX configuration after SSL update
+  command: nginx -t
+
+- name: Reload NGINX after SSL update
+  service:
+    name: nginx
+    state: reloaded

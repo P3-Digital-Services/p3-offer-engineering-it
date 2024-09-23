@@ -1,0 +1,30 @@
+---
+- name: Stop Keycloak service
+  ansible.builtin.systemd:
+    name: keycloak
+    state: stopped
+
+- name: Wait for 5 seconds
+  pause:
+    seconds: 5
+
+- name: Start Keycloak service
+  ansible.builtin.systemd:
+    name: keycloak
+    state: started
+
+- name: Instance health check
+  uri:
+    url: "http://localhost:8080/realms/master"
+    method: GET
+    return_content: yes
+  register: healthcheck_response
+  until: healthcheck_response.status == 200
+  retries: 15
+  delay: 20
+  ignore_errors: yes
+
+- name: Health check failed
+  when: healthcheck_response.status != 200
+  fail:
+    msg: "Health check failed after 300 seconds. Status: {{ healthcheck_response.status }}"

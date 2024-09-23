@@ -1,0 +1,89 @@
+upstream backend {
+    {% for ip in backend_ips %}
+    server {{ ip }}:8080 fail_timeout=5s;
+    {% endfor %}
+}
+
+server {
+    listen 80;
+    server_name {{ server_domain }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name {{ server_domain }};
+
+    client_max_body_size 500M;
+
+    ssl_certificate /etc/letsencrypt/live/{{ server_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ server_domain }}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers 'HIGH:!aNULL:!MD5';
+    ssl_prefer_server_ciphers on;
+
+    location / {
+        proxy_pass http://127.0.0.1:4200;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 300;
+        proxy_send_timeout 300;
+    }
+
+    location /auth {
+        proxy_pass http://backend/auth;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Server $host;
+        proxy_set_header X-Forwarded-Port 8080;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 300;
+        proxy_send_timeout 300;
+    }
+
+    location /admin {
+        proxy_pass http://backend/admin;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Server $host;
+        proxy_set_header X-Forwarded-Port 8080;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /resources {
+        proxy_pass http://backend/resources;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Server $host;
+        proxy_set_header X-Forwarded-Port 8080;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /realms {
+        proxy_pass http://backend/realms;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Server $host;
+        proxy_set_header X-Forwarded-Port 8080;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

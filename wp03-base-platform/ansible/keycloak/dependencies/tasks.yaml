@@ -1,0 +1,9 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: true
+
+- name: Install dependencies
+  apt:
+    name: ['curl', 'unzip', 'vim', 'ca-certificates', 'apt-transport-https', 'gnupg', 'openjdk-{{ java_version }}-jre-headless']
+    state: present
