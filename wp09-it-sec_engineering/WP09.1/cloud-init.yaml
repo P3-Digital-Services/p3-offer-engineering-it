@@ -1,0 +1,4 @@
+#cloud-config
+runcmd:
+  - sudo apt purge -y walinuxagent
+  - sudo rm -rf /var/lib/walinuxagent /etc/walinuxagent.conf /var/log/walinuxagent.log

@@ -1,0 +1,203 @@
+---
+- name: Handle Jenkins Security Breach
+  hosts: localhost
+  gather_facts: no
+
+  vars_files:
+    - vars/main.yml
+
+  tasks:
+    # Scale down Jenkins service
+    - name: Jenkins Scale Down - Scale down deployment to specified replicas
+      kubernetes.core.k8s:
+        api_version: apps/v1
+        kubeconfig: "{{ kubectl_config }}"
+        state: present
+        name: "{{ jenkins_deployment_name }}"
+        namespace: "{{ jenkins_namespace }}"
+        kind: Deployment
+        definition:
+          spec:
+            replicas: "{{ jenkins_replicas_down }}"
+
+    - name: Jenkins Scale Down - Wait for the deployment to scale down
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: "{{ jenkins_deployment_name }}"
+        namespace: "{{ jenkins_namespace }}"
+      register: deployment_info
+      until: deployment_info.resources[0].spec.replicas == jenkins_replicas_down
+      retries: 10
+      delay: 5
+
+    # Backup all Jenkins credentials
+    - name: Jenkins Backup Credentials - Create a Jenkins rotate pod
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: "{{ jenkins_rotate_pod_name }}"
+            namespace: "{{ jenkins_namespace }}"
+          spec:
+            containers:
+              - name: "{{ jenkins_rotate_container_name }}"
+                image: "{{ jenkins_rotate_container_image }}"
+                volumeMounts:
+                  - name: "{{ jenkins_rotate_volume_name }}"
+                    mountPath: "{{ jenkins_home }}"
+                  - name: master-key-volume
+                    mountPath: "{{ jenkins_home }}/secrets/master.key"
+                    subPath: "{{ jenkins_rotate_secret_key }}"
+            volumes:
+              - name: "{{ jenkins_rotate_volume_name }}"
+                persistentVolumeClaim:
+                  claimName: "{{ jenkins_rotate_pvc_name }}"
+              - name: master-key-volume
+                secret:
+                  secretName: "{{ jenkins_rotate_secret }}"
+            restartPolicy: Never
+            securityContext:
+              fsGroup: 1000
+              runAsUser: 0
+            serviceAccount: "{{ jenkins_rotate_sa }}"
+            serviceAccountName: "{{ jenkins_rotate_sa }}"
+
+    - name: Jenkins Backup Credentials - Wait for Jenkins rotate pod to be ready
+      wait_for:
+        timeout: "{{ jenkins_time_out }}"
+
+    - name: Jenkins Backup Credentials - Copy files to Jenkins rotate pod
+      command: >
+        kubectl cp ./{{ jenkins_rotate_key_folder }} {{ jenkins_namespace }}/{{ jenkins_rotate_pod_name }}:{{ jenkins_home }}/{{ jenkins_rotate_key_folder }} \
+        --kubeconfig {{ kubectl_config }}
+
+    - name: Jenkins Backup Credentials - Verify the files was copied successfully
+      command: >
+        kubectl exec -it -n {{ jenkins_namespace }} \
+        {{jenkins_rotate_pod_name}} --kubeconfig {{ kubectl_config }} \
+        -- /bin/bash  -c 'ls -l {{jenkins_home}}/{{ jenkins_rotate_key_folder }}/backup.sh {{jenkins_home}}/{{ jenkins_rotate_key_folder }}/re-encrypt.sh'
+
+    - name: Jenkins Backup Credentials - Run script to backup all credentials
+      command: >
+        kubectl exec -n {{ jenkins_namespace }} \
+        {{ jenkins_rotate_pod_name }} --kubeconfig {{ kubectl_config }} \
+        -- /bin/bash  -c 'chmod +x {{ jenkins_home }}/{{ jenkins_rotate_key_folder }}/backup.sh && {{ jenkins_home }}/{{ jenkins_rotate_key_folder }}/backup.sh {{ jenkins_user }} {{ jenkins_api_token }}'
+      register: backup_credentials_output
+
+    - name: Jenkins Backup Credentials - Verify Jenkins backup credentials output
+      debug:
+        msg: "{{ backup_credentials_output.stdout }}"
+
+    - name: Jenkins Backup Credentials - Delete the Jenkins rotate pod
+      kubernetes.core.k8s:
+        state: absent
+        kind: Pod
+        name: "{{ jenkins_rotate_pod_name }}"
+        namespace: "{{ jenkins_namespace }}"
+
+    # Change Jenkins master key
+    - name: Jenkins Update Master Key - Generate new Jenkins master key
+      ansible.builtin.shell: "openssl rand -hex 128 | base64"
+      register: new_master_key
+
+    - name: Jenkins Update Master Key - Update the Jenkins master key secret in Kubernetes
+      kubernetes.core.k8s:
+        state: present
+        definition: 
+          apiVersion: v1
+          kind: Secret
+          type: Opaque
+          metadata:
+            name: "{{ jenkins_rotate_secret }}"
+            namespace: "{{ jenkins_namespace }}"
+          data:
+            master.key: "{{ new_master_key.stdout }}"
+
+    # Re-Encrypt all Jenkins scredentials
+    - name: Jenkins Re-Encrypt Credentials - Create a Jenkins rotate pod
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: "{{ jenkins_rotate_pod_name }}"
+            namespace: "{{ jenkins_namespace }}"
+          spec:
+            containers:
+              - name: "{{ jenkins_rotate_container_name }}"
+                image: "{{ jenkins_rotate_container_image }}"
+                volumeMounts:
+                  - name: "{{ jenkins_rotate_volume_name }}"
+                    mountPath: "{{ jenkins_home }}"
+                  - name: master-key-volume
+                    mountPath: "{{ jenkins_home }}/secrets/master.key"
+                    subPath: "{{ jenkins_rotate_secret_key }}"
+            volumes:
+              - name: "{{ jenkins_rotate_volume_name }}"
+                persistentVolumeClaim:
+                  claimName: "{{ jenkins_rotate_pvc_name }}"
+              - name: master-key-volume
+                secret:
+                  secretName: "{{ jenkins_rotate_secret }}"
+            restartPolicy: Never
+            securityContext:
+              fsGroup: 1000
+              runAsUser: 0
+            serviceAccount: "{{ jenkins_rotate_sa }}"
+            serviceAccountName: "{{ jenkins_rotate_sa }}"
+
+    - name: Jenkins Re-Encrypt Credentials - Wait for Jenkins rotate pod to be ready
+      wait_for:
+        timeout: "{{ jenkins_time_out }}"
+
+    - name: Jenkins Re-Encrypt Credentials - Re-encrypt Jenkins credentials using the new master key
+      command: >
+        kubectl exec -it -n {{ jenkins_namespace }} \
+        {{ jenkins_rotate_pod_name }} --kubeconfig {{ kubectl_config }} \
+        -- /bin/bash  -c 'chmod +x {{ jenkins_home }}/{{ jenkins_rotate_key_folder }}/re-encrypt.sh && {{ jenkins_home }}/{{ jenkins_rotate_key_folder }}/re-encrypt.sh {{ jenkins_user }} {{ jenkins_api_token }}'
+      register: reencrypt_credentials_output
+
+    - name: Jenkins Re-Encrypt Credentials - Verify Jenkins re-encrypt credentials output
+      debug:
+        msg: "{{ reencrypt_credentials_output.stdout }}"
+
+    # Cleanup
+    - name: Jenkins Cleanup - Cleanup data from Jenkins rote pod
+      command: >
+        kubectl exec -it -n {{ jenkins_namespace }} \
+        {{ jenkins_rotate_pod_name }} --kubeconfig {{ kubectl_config }} \
+        -- /bin/bash -c 'rm -rf {{ jenkins_home }}/{{ jenkins_rotate_key_folder }}'
+
+    - name: Jenkins Cleanup - Delete the Jenkins rotate pod
+      kubernetes.core.k8s:
+        state: absent
+        kind: Pod
+        name: "{{ jenkins_rotate_pod_name }}"
+        namespace: "{{ jenkins_namespace }}"
+
+    # Scale up Jenkins service
+    - name: Jenkins Scale Up - Scale up deployment to specified replicas
+      kubernetes.core.k8s:
+        api_version: apps/v1
+        kubeconfig: "{{ kubectl_config }}"
+        state: present
+        name: "{{ jenkins_deployment_name }}"
+        namespace: "{{ jenkins_namespace }}"
+        kind: Deployment
+        definition:
+          spec:
+            replicas: "{{ jenkins_replicas_up }}"
+      register: scale_up_result
+
+    - name: Jenkins Scale Up - Wait for the deployment to scale up
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: "{{ jenkins_deployment_name }}"
+        namespace: "{{ jenkins_namespace }}"
+      register: deployment_info
+      until: deployment_info.resources[0].spec.replicas == jenkins_replicas_up
+      retries: 10
+      delay: 5

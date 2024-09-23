@@ -1,0 +1,48 @@
+---
+- name: "Setting up replica first"
+  hosts: wp05_first
+  vars:
+    ansible_ssh_private_key_file: "./key/key.pem"
+  vars_files:
+    - inventory/group_vars/all.yaml
+  remote_user: "wp05-admin"
+  tasks:
+    - name: Verify the connection
+      command: echo hello first
+      become: yes
+      register: output  # Register the output
+    - name: Add node replicaset
+      command: ghe-repl-setup {{ master_host }}
+      become: yes
+      ignore_errors: yes
+    - name: Verify node replicaset
+      command: ghe-repl-setup {{ master_host }}
+    - name: start  node replicaset
+      command: ghe-repl-start
+    - name: Check status replicaset
+      command: ghe-repl-status
+
+- name: "Setting up replica other"
+  hosts: wp05_other
+  vars:
+    ansible_ssh_private_key_file: "./key/key.pem"
+  vars_files:
+    - inventory/group_vars/all.yaml
+  remote_user: "wp05-admin"
+  tasks:
+    - name: Verify the connection
+      command: echo hello other
+      become: yes
+      register: output  # Register the output
+    - name: Add node replicaset
+      command: ghe-repl-setup --add {{ master_host }}
+      become: yes
+      ignore_errors: yes
+    - name: Verify node replicaset
+      command: ghe-repl-setup --add {{ master_host }}
+    - name: start  node replicaset
+      command: ghe-repl-start
+    - name: Check status replicaset
+      command: ghe-repl-status
+
+

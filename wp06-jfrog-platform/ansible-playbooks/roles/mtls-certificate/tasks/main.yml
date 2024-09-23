@@ -1,0 +1,22 @@
+# 1.
+
+# Create mTLS secret to authroize client certificate
+# 2.1. Read client certificate
+- name: Read the client CA certificate
+  slurp:
+    src: "{{ ca_cert_path }}"
+  register: client_ca_cert
+
+# 2.2. Generate mTLS secret
+- name: Create Kubernetes secret for {{ secret_name }} in {{ namespace }}
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ secret_name }}"
+        namespace: "{{ namespace }}"
+      type: kubernetes.io/generic
+      data:
+        ca.crt: "{{ client_ca_cert.content }}"

@@ -1,0 +1,10 @@
+---
+- name: Deploy Single Artifactory Instance
+  hosts: localhost
+  gather_facts: no
+  vars:
+    values_file: "{{ playbook_dir }}/../helm-values/artifactory-oss/{{ artifactory_instance }}-values.yml"
+    namespace: "{{ artifactory_namespace }}"
+    action: "{{ ingress_action }}"
+  roles:
+    - artifactory

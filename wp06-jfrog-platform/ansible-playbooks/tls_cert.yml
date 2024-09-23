@@ -1,0 +1,33 @@
+---
+- name: Check if TLS certificate needs renewal and renew if necessary
+  hosts: localhost
+  gather_facts: yes
+  tasks:
+    - name: Renewal TLS secret
+      include_role:
+        name: check-tls-expiration
+      vars:
+        namespace: "{{ tls_namespace }}"
+        secret_name: "{{ tls_secret_name }}"
+        renewal_threshold_days: 30
+      when: tls_action == "renewal"
+
+    - name: Install/Update TLS secret
+      include_role:
+        name: tls-certificate
+      vars:
+        common_name: "*.eastus2.cloudapp.azure.com"
+        country: "VN"
+        state: "TPHCM"
+        location: "High-tech zone"
+        organization: "FPT Software"
+
+        ca_cert_path: "{{ playbook_dir }}/../certificates"
+        SAN:
+          - "*.eastus2.cloudapp.azure.com"
+        akv_name: "cariad-us2-d-demo-akv"
+        akv_rg: "dbg-cariad-demo"
+        akv_ca_key_secret: "cariad-ca-key-demo"
+        secret_name: "{{ tls_secret_name }}"
+        namespace: "{{ tls_namespace }}"
+      when: tls_action == "install"

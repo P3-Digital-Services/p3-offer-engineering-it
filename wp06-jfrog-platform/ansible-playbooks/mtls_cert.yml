@@ -1,0 +1,11 @@
+---
+- name: Check if TLS certificate needs renewal and renew if necessary
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    ca_cert_path: "{{ playbook_dir }}/../certificates/ca-cert.pem"
+    secret_name: "{{ mtls_secret_name }}"
+    namespace: "{{ mtls_namespace }}"
+  roles:
+    - mtls-certificate
+        

@@ -1,0 +1,31 @@
+---
+ansible_python_interpreter: /usr/bin/python3.9
+
+# kubectl settings
+kubectl_config: ~/.kube/config
+
+# aks jenkins settings
+jenkins_deployment_name: wp07-jenkins # AKS Jenkins depoyment name
+jenkins_namespace: jenkins # AKS Jenkins namespace
+jenkins_replicas_down: 0
+jenkins_replicas_up: 1 # Number of Jenkins replicas when scale up
+
+# aks jenkins pod rotate master key
+jenkins_time_out: 90
+jenkins_rotate_pod_name: jenkins-rotate-key
+jenkins_rotate_container_name: jenkins-rotate-key
+jenkins_rotate_container_image: jenkins/jenkins:lts-jdk17
+jenkins_rotate_volume_name: jenkins-data # AKS Jenkins volume mount name
+jenkins_rotate_pvc_name: jenkins-data-pvc # AKS jenkins pvc volume name
+jenkins_rotate_secret: jenkins-master-key  # AKS jenkins sercret name
+jenkins_rotate_secret_key: master.key # AKS jenkins sercret key name
+jenkins_rotate_sa: wp07-jenkins # AKS jenkins service account name
+
+# jenkins settings
+jenkins_home: /var/jenkins_home # Jenkins home folder
+jenkins_master_key_file: "{{ jenkins_home }}/secrets/master.key"
+jenkins_rotate_key_folder: rotate_master_key
+
+# Ansible use Jenkins API token to run Jenkins CLI jar file. Log in to the Jenkins -> Manage Jenkins -> Manage Users -> Add new token
+jenkins_user: admin
+jenkins_api_token: 11fa1c92ab2f63b2927fb752c082a267b4

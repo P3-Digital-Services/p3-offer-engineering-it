@@ -1,0 +1,6 @@
+---
+- name: Prepare environment
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - ansible-prepare

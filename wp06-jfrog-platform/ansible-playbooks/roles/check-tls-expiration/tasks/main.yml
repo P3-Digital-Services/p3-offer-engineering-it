@@ -1,0 +1,76 @@
+# 1. Check TLS secret existance
+- name: Retrieve TLS secret from Kubernetes
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    namespace: "{{ namespace }}"
+    name: "{{ secret_name }}"
+  register: tls_secret
+
+# 1.1. Fail if not exist
+- name: Fail if TLS secret does not exist
+  fail:
+    msg: "TLS secret {{ secret_name }} not found in namespace {{ namespace }}."
+  when: tls_secret.resources is not defined or tls_secret.resources | length == 0
+
+# 2. Check if TLS secret needs renew 
+# 2.1 Create temporary directory
+- name: Create directory for certificates
+  file:
+    path: /tmp/{{ secret_name }}/
+    state: directory
+    mode: '0755'
+
+# 2.2. Get certificate expiration
+- name: Extract the certificate from the secret
+  set_fact:
+    tls_cert_base64: "{{ tls_secret.resources[0].data['tls.crt'] }}"
+
+# 2.3. Decode secret value
+- name: Decode the base64-encoded certificate
+  copy:
+    content: "{{ tls_cert_base64 | b64decode }}"
+    dest: /tmp/{{ secret_name }}/{{ secret_name }}.crt
+
+# 2.4. Get expire date
+- name: Get certificate expiration date
+  shell: "openssl x509 -in /tmp/{{ secret_name }}/{{ secret_name }}.crt -noout -enddate"
+  register: cert_expiration_date
+
+# 2.5. Convert current date and certificate expiration date to integers
+- name: Convert current date and certificate expiration date to integers
+  set_fact:
+    cert_expiration_int: "{{ ((cert_expiration_date.stdout | regex_search('notAfter=(.*)', '\\1') | first | to_datetime('%b %d %H:%M:%S %Y GMT')).strftime('%s')) }}"
+    current_time_int: "{{ ((ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s')) }}"
+    renewal_threshold_int: "{{ (renewal_threshold_days | int) * 24 * 60 * 60 }}"
+
+# 2.6. Calculate days until expiration
+- name: Calculate days until expiration
+  set_fact:
+    days_until_expiration: "{{ cert_expiration_int | int - current_time_int | int }}"
+
+# 2.7. Check if tls secret needs renewal
+- name: Determine if certificate needs renewal
+  set_fact:
+    needs_renewal: "{{ days_until_expiration | int <= renewal_threshold_int | int }}"
+
+# 2.8. TLS secret needs renewal
+- name: Renew TLS secret
+  include_role:
+    name: tls-certificate
+  vars:
+    common_name: "*.eastus2.cloudapp.azure.com"
+    country: "VN"
+    state: "TPHCM"
+    location: "High-tech zone"
+    organization: "FPT Software"
+
+    ca_cert_path: "{{ playbook_dir }}/../certificates"
+    SAN:
+      - "*.eastus2.cloudapp.azure.com"
+    akv_name: "cariad-us2-d-demo-akv"
+    akv_rg: "dbg-cariad-demo"
+    akv_ca_key_secret: "cariad-ca-key-demo"
+    secret_name: "{{ tls_secret_name }}"
+    namespace: "{{ tls_namespace }}"
+  when: needs_renewal

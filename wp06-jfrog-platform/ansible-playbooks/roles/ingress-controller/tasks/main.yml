@@ -1,0 +1,89 @@
+# 1. Check if Helm is installed
+- name: Check if Helm is installed
+  command: helm version --short
+  register: helm_installed
+  ignore_errors: yes
+
+# 1.1 Install Helm if not installed
+- name: Install Helm
+  shell: curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+  when: helm_installed.failed
+
+# 2. Check if ingress-nginx repository is added
+- name: Check if ingress-nginx repository is added
+  shell: helm search repo ingress-nginx/ingress-nginx
+  register: helm_repo_exists
+  ignore_errors: yes
+
+# 2.1 Add ingress-nginx repository if it does not exist
+- name: Add ingress-nginx Helm repository
+  command: helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+  when: helm_repo_exists.failed
+
+# 2.2 Update ingress-nginx repository if it exists
+- name: Update ingress-nginx Helm repository
+  command: helm repo update
+  when: helm_repo_exists
+
+# 3. Create kubectl namespace if not exists using kubernetes.core.k8s
+- name: Ensure namespace exists
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ namespace }}"
+  register: ns_exists
+
+# 4. Check if ingress-nginx release exists
+- name: Check if ingress-nginx-{{ ingress_controller_instance }} in {{ namespace }}
+  shell: "helm status -n {{ namespace }} ingress-nginx-{{ ingress_controller_instance }}"
+  register: helm_chart_exists
+  ignore_errors: yes
+
+# 4.1 Install ingress-nginx chart
+- name: Install helm release ingress-nginx-{{ ingress_controller_instance }}
+  kubernetes.core.helm:
+    release_name: "ingress-nginx-{{ ingress_controller_instance }}"
+    release_state: "present"
+    chart_ref: ingress-nginx/ingress-nginx
+    namespace: "{{ namespace }}"
+    chart_version: "{{ ingress_controller_chart_version }}"
+    values_files:
+      - "{{ values_file }}"
+  register: helm_install
+  retries: 3
+  delay: 30
+  until: helm_install is succeeded
+  when: helm_chart_exists.failed and action == "install"
+
+# 4.2 Upgrade ingress-nginx chart
+- name: Upgrade helm release ingress-nginx-{{ ingress_controller_instance }}
+  kubernetes.core.helm:
+    release_name: "ingress-nginx-{{ ingress_controller_instance }}"
+    release_state: "present"
+    chart_ref: ingress-nginx/ingress-nginx
+    namespace: "{{ namespace }}"
+    chart_version: "{{ ingress_controller_chart_version }}"
+    values_files:
+      - "{{ values_file }}"
+  register: helm_upgrade
+  retries: 3
+  delay: 30
+  until: helm_upgrade is succeeded
+  when: helm_chart_exists.rc == 0 and action == "upgrade"
+
+# 4.3 Remove ingress-nginx chart
+- name: Remove helm release ingress-nginx-{{ ingress_controller_instance }}
+  kubernetes.core.helm:
+    release_name: "ingress-nginx-{{ ingress_controller_instance }}"
+    release_state: "absent"
+    namespace: "{{ namespace }}"
+    values_files:
+      - "{{ values_file }}"
+  register: helm_uninstall
+  retries: 3
+  delay: 30
+  until: helm_uninstall is succeeded
+  when: helm_chart_exists.rc == 0 and action == "uninstall"

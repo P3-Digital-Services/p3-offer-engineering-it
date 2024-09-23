@@ -1,0 +1,40 @@
+artifactory:
+  persistence:
+    enabled: true
+    size: 10Gi
+  artifactory:
+    admin:
+      username: "admin"
+      password: "strongpassword1"
+    ## Default tag is from the artifactory sub-chart in the requirements.yaml
+    image:
+      registry: releases-docker.jfrog.io
+      repository: jfrog/artifactory-oss
+  nginx:
+    enabled: false
+  ingress:
+    enabled: true
+    className: ingress-nginx-artifactory01
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+      nginx.ingress.kubernetes.io/auth-tls-secret: artifactory01/artifactory01-mtls
+      nginx.ingress.kubernetes.io/auth-tls-verify-client: "on"
+    hosts:
+      - dbg-artifactory01.eastus2.cloudapp.azure.com
+    tls:
+      - secretName: artifactory01-tls
+        hosts:
+          - dbg-artifactory01.eastus2.cloudapp.azure.com
+  postgresql:
+    enabled: true
+    postgresqlPassword: "Sondeptrai123"
+  databaseUpgradeReady: "yes"
+## Enable the PostgreSQL sub chart
+postgresql:
+  enabled: true
+router:
+  image:
+    tag: 7.118.2
+initContainers:
+  image:
+    tag: 9.4.949.1716471857

@@ -1,0 +1,26 @@
+- name: Install Azure Ansible collection
+  ansible.builtin.command: ansible-galaxy collection install azure.azcollection
+
+- name: install pre-requisites pip libraries
+  pip:
+    name:
+      - pyyaml
+      - kubernetes 
+      - azure-keyvault-secrets
+      - azure-identity
+      - azure-cli
+      - azure-mgmt-core
+      - azure-mgmt-network
+      - azure-mgmt-automation
+      - azure-mgmt-notificationhubs
+      - azure-mgmt-datafactory
+      - azure-mgmt-authorization
+      - azure-mgmt-resource
+      - msgraph-core
+      - msgraph-sdk
+
+- name: Install OpenSSL (if needed)
+  apt:
+    name: openssl
+    state: present
+  become: true

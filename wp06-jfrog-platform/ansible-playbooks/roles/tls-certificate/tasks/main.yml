@@ -1,0 +1,115 @@
+# 1. Create temporary directory
+- name: Create directory for certificates
+  file:
+    path: /tmp/{{ secret_name }}/
+    state: directory
+    mode: '0755'
+
+# 2.1. Generate CSR and private key
+- name: Generate Private key and CSR at /tmp/{{ secret_name }}/
+  command: >
+    openssl req -new 
+    -newkey rsa:4096 
+    -keyout /tmp/{{ secret_name }}/{{ secret_name }}.key 
+    -out /tmp/{{ secret_name }}/{{ secret_name }}.csr 
+    -config /tmp/{{ secret_name }}/openssl.cnf
+    -nodes
+
+# 2.2 Create configuration file
+- name: Create OpenSSL configuration file
+  template:
+    src: roles/tls-certificate/templates/openssl.cnf.j2
+    dest: /tmp/{{ secret_name }}/openssl.cnf
+
+# 3. Get CA key value from AKV
+- name: Get Key Vault {{ akv_name }} 
+  azure.azcollection.azure_rm_keyvault_info:
+    resource_group: "{{ akv_rg }}"
+    name: "{{ akv_name }}"
+  register: key_vault
+
+# 3.1. Set Key Vault URI
+- name: Set key vault URI fact
+  set_fact: key_vault_uri="{{ key_vault['keyvaults'][0]['vault_uri'] }}"
+
+# 3.2. Retrieve ca key value
+- name: Retrieve ca key {{ akv_ca_key_secret }} value from {{ key_vault_uri }} 
+  azure.azcollection.azure_rm_keyvaultsecret_info:
+    vault_uri: "{{ key_vault_uri }}"
+    name: "{{ akv_ca_key_secret }}"
+  register: ca_key_secret
+
+- name: set key fact
+  set_fact: ca_key_secret_value="{{ ca_key_secret['secrets'][0]['secret'] | regex_replace('\\s+', '\n') }}"
+
+# 3.3. Reassemble private key
+- name: Reassemble private key
+  set_fact:
+    ca_key_secret_value: |
+      -----BEGIN PRIVATE KEY-----
+      {{ ca_key_secret_value }}
+      -----END PRIVATE KEY-----
+
+# 3.4. Write ca key value to temporary file 
+- name: Write {{ akv_ca_key_secret }} to a temporary file
+  copy:
+    content: "{{ ca_key_secret_value }}"
+    dest: "/tmp/{{ secret_name }}/{{ akv_ca_key_secret }}.pem"
+  when: ca_key_secret_value is defined
+
+# 3.5. Sign the CSR
+- name: Sign CSR with CA cert
+  command: >
+    openssl x509 -req 
+    -in /tmp/{{ secret_name }}/{{ secret_name }}.csr
+    -CA {{ ca_cert_path }}/ca-cert.pem 
+    -CAkey /tmp/{{ secret_name }}/{{ akv_ca_key_secret }}.pem 
+    -CAcreateserial 
+    -out /tmp/{{ secret_name }}/{{ secret_name }}.crt 
+    -days 365 
+    -extfile /tmp/{{ secret_name }}/openssl.cnf
+    -extensions req_ext
+
+# 3.6 Display generated files
+- name: Display generated certificate and key paths
+  debug:
+    msg: "Certificate: /tmp/{{ secret_name }}/{{ secret_name }}.crt, Private Key: /tmp/{{ secret_name }}/{{ secret_name }}.key"
+
+# 3.7. Securely delete ca key file after use 
+- name: Securely delete the temporary CA key file
+  file:
+    path: "/tmp/{{ secret_name }}/{{ akv_ca_key_secret }}.pem"
+    state: absent
+
+# 3.8 Display generated files
+- name: Display generated certificate and key paths
+  debug:
+    msg: "Certificate: /tmp/{{ secret_name }}/{{ secret_name }}.crt, Private Key: /tmp/{{ secret_name }}/{{ secret_name }}.key"
+
+# Create TLS secret
+# 4.1 Read private key content
+- name: Read the private key file
+  slurp:
+    src: /tmp/{{ secret_name }}/{{ secret_name }}.key
+  register: private_key_content
+
+# 4.2 Read certificate content
+- name: Read the certificate file
+  slurp:
+    src: /tmp/{{ secret_name }}/{{ secret_name }}.crt
+  register: cert_content
+
+# 4.3 Generate TLS secret
+- name: Create Kubernetes secret for {{ secret_name }} in {{ namespace }}
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ secret_name }}"
+        namespace: "{{ namespace }}"
+      type: kubernetes.io/tls
+      data:
+        tls.crt: "{{ cert_content.content | b64decode | b64encode }}"
+        tls.key: "{{ private_key_content.content | b64decode | b64encode }}"

@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jenkins.fullname" . }}
+  labels:
+    {{- include "jenkins.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "jenkins.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "jenkins.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "jenkins.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+#          env:
+#            - name: "JENKINS_JAVA_OPTIONS"
+#              value: "-Djava.awt.headless=true -Djava.io.tmpdir=/var/jenkins_home/tmp"
+#            - name: "TMP"
+#              value: "/var/jenkins_home/tmp"
+#            - name: "TEMP"
+#              value: "/var/jenkins_home/tmp"
+#            - name: "TMPDIR"
+#              value: "/var/jenkins_home/tmp"
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+#          livenessProbe:
+#            httpGet:
+#              path: /
+#              port: http
+#          readinessProbe:
+#            httpGet:
+#              path: /
+#              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: {{ .Values.storage.mountPath }}
+              name: {{ .Values.storage.volumeName }}
+              readOnly: false
+            - name: master-key-volume
+              mountPath: {{ .Values.masterKey.mountPath }}
+              subPath: master.key
+              readOnly: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: {{ .Values.storage.volumeName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.PersistentVolumeClaimName }}
+        - name: master-key-volume
+          secret:
+            secretName: {{ .Values.masterKey.masterKeySecretName }}
+            items:
+              - key: master.key
+                path: master.key
+#  volumeClaimTemplates:
+#    - metadata:
+#        name: {{ .Values.storage.volumeName }}
+#      spec:
+#        storageClassName: azureblob-nfs-premium
+#        accessModes: [ "ReadWriteMany" ]
+#        resources:
+#          requests:
+#            storage: 10Gi
+

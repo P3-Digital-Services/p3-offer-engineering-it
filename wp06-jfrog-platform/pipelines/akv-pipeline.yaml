@@ -1,0 +1,126 @@
+pool:
+  name: Linux Pool
+  
+trigger:
+- none
+pr: none
+appendCommitMessageToRunName: false
+
+variables:
+- group: ${{parameters.environment}}
+
+parameters:
+  - name: environment
+    type: string
+    default: dev
+    values:
+      - dev
+      - qa
+
+stages:
+  - stage: akv_build_stage
+    displayName: "AKV Build Stage"
+    jobs:
+      - job: Build
+        displayName: "AKV Build Job"
+        steps:
+          - template: install-terraform-template.yaml
+          - task: AzureCLI@2
+            name: tfCredentials
+            displayName: Azure credentials
+            env:
+              subscriptionId: $(subscriptionId)
+            inputs:
+              azureSubscription: $(service_connection_name)
+              scriptType: bash
+              scriptLocation: inlineScript
+              addSpnToEnvironment: true
+              inlineScript: |
+                echo "##vso[task.setvariable variable=ARM_CLIENT_ID]$servicePrincipalId"
+                echo "##vso[task.setvariable variable=ARM_CLIENT_SECRET]$servicePrincipalKey"
+                echo "##vso[task.setvariable variable=ARM_SUBSCRIPTION_ID]$subscriptionId"
+                echo "##vso[task.setvariable variable=ARM_TENANT_ID]$tenantId"
+
+
+          - task: AzureCLI@2
+            displayName: "terraform init plan"
+            inputs:
+              workingDirectory: "$(Build.SourcesDirectory)/terraform/deployments/akv"
+              azureSubscription: $(service_connection_name)
+              scriptType: bash
+              scriptLocation: inlineScript
+              addSpnToEnvironment: true
+              inlineScript: |
+                echo "ARM_CLIENT_ID: $ARM_CLIENT_ID"
+                echo "ARM_CLIENT_SECRET: $ARM_CLIENT_SECRET"
+                echo "ARM_SUBSCRIPTION_ID: $ARM_SUBSCRIPTION_ID"
+                echo "ARM_TENANT_ID: $ARM_TENANT_ID"
+
+                terraform init
+                terraform fmt
+                terraform validate
+                terraform plan -var-file=terraform.tfvars -out tfplan.out
+
+          - task: CopyFiles@2
+            displayName: "Copy AKV deployment folder"
+            inputs:
+              SourceFolder: $(Build.SourcesDirectory)/terraform/deployments/akv
+              Contents: "**"
+              TargetFolder: $(Build.ArtifactStagingDirectory)/terraform/deployments/akv
+          
+          - task: CopyFiles@2
+            displayName: "Copy AKV module folder"
+            inputs:
+              SourceFolder: '$(Build.SourcesDirectory)/terraform/modules'
+              Contents: "**"
+              TargetFolder: $(Build.ArtifactStagingDirectory)/terraform/modules
+
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish Artifact"
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'terraform-akv'
+              publishLocation: 'Container' 
+
+  - stage: akv_deploy_stage
+    displayName: "AKV Deploy Stage"
+    jobs:
+      - deployment: "akv_deployment_job"
+        displayName: "AKV Deployment Job"
+        environment: ${{parameters.environment}}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+              # - template: install-terraform-template.yaml
+              - task: AzureCLI@2
+                name: tfCredentials
+                displayName: Azure credentials
+                env:
+                  subscriptionId: $(subscriptionId)
+                inputs:
+                  azureSubscription: $(service_connection_name)
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  addSpnToEnvironment: true
+                  inlineScript: |
+                    echo "##vso[task.setvariable variable=ARM_CLIENT_ID]$servicePrincipalId"
+                    echo "##vso[task.setvariable variable=ARM_CLIENT_SECRET]$servicePrincipalKey"
+                    echo "##vso[task.setvariable variable=ARM_SUBSCRIPTION_ID]$subscriptionId"
+                    echo "##vso[task.setvariable variable=ARM_TENANT_ID]$tenantId"
+
+              - task: AzureCLI@2
+                displayName: "terraform apply"
+                inputs:
+                  workingDirectory: "$(Build.SourcesDirectory)/terraform/deployments/akv"
+                  azureSubscription: $(service_connection_name)
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  addSpnToEnvironment: true
+                  inlineScript: |
+                    echo "ARM_CLIENT_ID: $ARM_CLIENT_ID"
+                    echo "ARM_CLIENT_SECRET: $ARM_CLIENT_SECRET"
+                    echo "ARM_SUBSCRIPTION_ID: $ARM_SUBSCRIPTION_ID"
+                    echo "ARM_TENANT_ID: $ARM_TENANT_ID"
+
+                    terraform apply "tfplan.out"  

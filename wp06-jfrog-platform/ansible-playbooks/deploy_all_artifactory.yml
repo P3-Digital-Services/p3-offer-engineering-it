@@ -1,0 +1,9 @@
+---
+- name: Deploy All Artifactory Instances
+  hosts: artifactories
+  gather_facts: no
+  roles:
+    - artifactory
+  tasks:
+    - name: Deploy Artifactory instances
+      include_tasks: deploy_artifactory.yml

@@ -1,0 +1,10 @@
+---
+- name: Deploy Ingress Controller
+  hosts: localhost
+  gather_facts: no
+  vars:
+    values_file: "{{ playbook_dir }}/../helm-values/ingress-controller/{{ ingress_controller_instance }}-values.yml"
+    namespace: "{{ ingress_namespace }}"
+    action: "{{ ingress_action }}"
+  roles:
+    - ingress-controller

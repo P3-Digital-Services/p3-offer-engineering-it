@@ -1,0 +1,31 @@
+controller:
+  admissionWebhooks:
+    enabled: false
+  config:
+    strict-validate-path-type: true
+  electionID: ingress-controller-leader-artifactory01
+  enableAnnotationValidations: true
+  image:
+    digest:
+    image: oss/kubernetes/ingress/nginx-ingress-controller
+    registry: mcr.microsoft.com
+    tag: v1.11.2
+  ingressClass: ingress-nginx-artifactory01
+  ingressClassResource:
+    controllerValue: k8s.io/ingress-nginx-artifactory01
+    name: ingress-nginx-artifactory01
+  nodeSelector:
+    kubernetes.io/os: linux
+  replicaCount: 1
+  service:
+    loadBalancerIP: 20.10.250.253
+    annotations:
+      service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /healthz
+defaultBackend:
+  enabled: true
+  image:
+    image: oss/kubernetes/defaultbackend
+    registry: mcr.microsoft.com
+    tag: v1.20.2-linux-amd64
+  nodeSelector:
+    kubernetes.io/os: linux
