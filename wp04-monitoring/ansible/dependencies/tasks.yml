@@ -1,0 +1,11 @@
+---
+- name: Install Dependencies
+  apt:
+    name:
+      - apt-transport-https
+      - software-properties-common
+      - wget
+      - curl
+      - gnupg
+      - openssl
+    state: present

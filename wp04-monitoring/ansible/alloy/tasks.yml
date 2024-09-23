@@ -1,0 +1,63 @@
+---
+- name: Add GPG Key
+  apt_key:
+    url: https://apt.grafana.com/gpg.key
+    state: present
+
+- name: Add APT Repository
+  apt_repository:
+    repo: "deb https://apt.grafana.com stable main"
+    state: present
+
+- name: Install Grafana Alloy
+  apt:
+    name: alloy
+    state: present
+    update_cache: yes
+
+- name: Start And Enable Grafana Alloy Service
+  systemd:
+    name: alloy
+    enabled: yes
+    state: started
+
+- name: Create Grafana Alloy Config File
+  copy:
+    dest: /etc/alloy/config.alloy
+    content: |
+      local.file_match "local_files" {
+          path_targets = [{"__path__" = "/var/log/*.log"}]
+          sync_period = "5s"
+      }
+
+      loki.source.file "log_scrape" {
+        targets    = local.file_match.local_files.targets
+        forward_to = [loki.process.filter_logs.receiver]
+        tail_from_end = true
+      }
+
+      loki.process "filter_logs" {
+        stage.drop {
+            source = ""
+            expression  = ".*Connection closed by authenticating user root"
+            drop_counter_reason = "noisy"
+          }
+
+        stage.static_labels {
+          values = {
+            VM = "{{ ansible_hostname }}",
+          }
+        }
+        forward_to = [loki.write.grafana_loki.receiver]
+        }
+
+      loki.write "grafana_loki" {
+        endpoint {
+            url = "http://{{ PRIVATE_IP_VM7 }}:3100/loki/api/v1/push"
+        }
+      }
+
+- name: Restart Alloy Service To Apply Changes
+  systemd:
+    name: alloy
+    state: restarted

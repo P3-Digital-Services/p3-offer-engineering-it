@@ -1,0 +1,55 @@
+---
+- name: PLAYBOOKS FOR APPSERVER
+  hosts: appserver
+  become: true
+  tasks:
+    - name: Include Dependencies Tasks
+      include_tasks: dependencies/tasks.yml
+
+    - name: Include App Server Tasks
+      include_tasks: appserver/tasks.yml
+
+- name: PLAYBOOKS FOR APPSERVER SSL EXPIRY
+  hosts: appserver_ssl_expiry
+  become: true
+  tasks:
+    - name: Include Dependencies Tasks
+      include_tasks: dependencies/tasks.yml
+
+    - name: Include App Server SSL Expiry Tasks
+      include_tasks: appserver-ssl-expiry/tasks.yml
+
+- name: PLAYBOOKS FOR SERVER
+  hosts: server_vms
+  become: true
+  tasks:
+    - name: Include Dependencies Tasks
+      include_tasks: dependencies/tasks.yml
+
+    - name: Include Grafana Tasks
+      include_tasks: grafana/tasks.yml
+
+    - name: Include Loki Tasks
+      include_tasks: loki/tasks.yml
+
+    - name: Include Prometheus Tasks
+      include_tasks: prometheus/server/tasks.yml
+
+    - name: Include Client App Tasks
+      include_tasks: clientapp/tasks.yml
+
+    - name: Include Alloy Tasks
+      include_tasks: alloy/tasks.yml
+
+- name: PLAYBOOKS FOR NODES
+  hosts: node_vms
+  become: true
+  tasks:
+    - name: Include Dependencies Tasks
+      include_tasks: dependencies/tasks.yml
+
+    - name: Include Alloy Tasks
+      include_tasks: alloy/tasks.yml
+
+    - name: Include Prometheus Node Exporter Tasks
+      include_tasks: prometheus/nodes/tasks.yml

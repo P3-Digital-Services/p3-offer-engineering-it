@@ -1,0 +1,144 @@
+---
+    - name: Ensure required packages are installed
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-requests
+        state: present
+
+    - name: Create the client directory
+      file:
+        path: /opt/file_client
+        state: directory
+
+    - name: Deploy the file client script
+      copy:
+        dest: /opt/file_client/file_client.py
+        content: |
+          import requests
+          import time
+          import os
+
+          SERVER_URLS = [
+              'https://{{ PUBLIC_IP_VM1 }}',  # Instance 1
+              'https://{{ PUBLIC_IP_VM2 }}',  # Instance 2
+              'https://{{ PUBLIC_IP_VM3 }}',  # Instance 3
+              'https://{{ PUBLIC_IP_VM4 }}',  # Instance 4
+              'https://{{ PUBLIC_IP_VM5 }}',  # Instance 5
+              'https://{{ PUBLIC_IP_VM6 }}',  # Instance 6
+          ]
+          FILE_SIZES_MB = [1, 5, 10]  # Test with 1 MB, 5 MB, and 10 MB files
+          LOG_DIR = '/var/log/'
+          UPLOAD_INTERVAL = 5 * 60  # 5 minutes in seconds
+
+          def generate_test_file(file_size_mb):
+              """Generate a test file of specified size in MB."""
+              file_name = f'example_{file_size_mb}MB.txt'
+              with open(file_name, 'wb') as f:
+                  f.write(os.urandom(file_size_mb * 1024 * 1024))  # Generate random bytes
+              return file_name
+
+          def upload_file(server_url, file_path):
+              if os.path.getsize(file_path) == 0:
+                  print("Error: The file is empty.")
+                  return
+
+              try:
+                  start_time = time.perf_counter()
+                  with open(file_path, 'rb') as f:
+                      files = {'file': f}
+                      response = requests.post(f'{server_url}/upload', files=files, verify=False, timeout=10)
+                  end_time = time.perf_counter()
+
+                  duration = end_time - start_time
+                  file_size = os.path.getsize(file_path)
+
+                  if duration > 0:
+                      speed = file_size / duration / (1024 * 1024)  # Speed in MB/s
+                  else:
+                      speed = 0
+
+                  log_upload(server_url, file_path, duration, speed)
+
+                  print(response.text)
+
+              except requests.exceptions.RequestException as e:
+                  print(f"Error uploading to {server_url}: {e}")
+
+          def download_file(server_url, filename):
+              try:
+                  start_time = time.perf_counter()
+                  response = requests.get(f'{server_url}/download/{filename}', stream=True, verify=False, timeout=10)
+
+                  if response.status_code == 200:
+                      with open(filename, 'wb') as f:
+                          for chunk in response.iter_content(chunk_size=8192):
+                              f.write(chunk)
+                  else:
+                      print(f"Error: {response.text}")
+                      return
+
+                  end_time = time.perf_counter()
+
+                  duration = end_time - start_time
+                  file_size = os.path.getsize(filename)
+
+                  if duration > 0:
+                      speed = file_size / duration / (1024 * 1024)  # Speed in MB/s
+                  else:
+                      speed = 0
+
+                  log_download(server_url, filename, duration, speed)
+
+                  print(f'Downloaded {filename} successfully from {server_url}.')
+
+              except requests.exceptions.RequestException as e:
+                  print(f"Error downloading from {server_url}: {e}")
+
+          def log_upload(server_url, file_path, duration, speed):
+              upload_log = os.path.join(LOG_DIR, f'upload_log_{server_url.split("//")[-1].replace(":", "_")}.log')
+              with open(upload_log, 'a') as log_file:
+                  log_file.write(f'Uploaded {file_path} to {server_url}: Duration: {duration:.2f}s, Speed: {speed:.2f} MB/s\n')
+
+          def log_download(server_url, filename, duration, speed):
+              download_log = os.path.join(LOG_DIR, f'download_log_{server_url.split("//")[-1].replace(":", "_")}.log')
+              with open(download_log, 'a') as log_file:
+                  log_file.write(f'Downloaded {filename} from {server_url}: Duration: {duration:.2f}s, Speed: {speed:.2f} MB/s\n')
+
+          if __name__ == '__main__':
+              while True:
+                  for size in FILE_SIZES_MB:
+                      test_file = generate_test_file(size)  # Create the test file
+                      for server_url in SERVER_URLS:
+                          upload_file(server_url, test_file)  # Upload the test file
+                          download_file(server_url, test_file)  # Download the test file
+
+                  print(f'Sleeping for {UPLOAD_INTERVAL / 60} minutes...')
+                  time.sleep(UPLOAD_INTERVAL)  # Wait for 5 minutes before the next iteration
+
+
+    - name: Create a systemd service file for the client
+      copy:
+        dest: /etc/systemd/system/file_client.service
+        content: |
+          [Unit]
+          Description=File Client Service
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/bin/python3 /opt/file_client/file_client.py
+          WorkingDirectory=/opt/file_client
+          User=root
+          StandardOutput=journal
+          StandardError=journal
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start the file client service
+      systemd:
+        name: file_client.service
+        enabled: yes
+        state: started

@@ -1,0 +1,168 @@
+---
+- name: Add GPG Key
+  apt_key:
+    url: https://apt.grafana.com/gpg.key
+    state: present
+
+- name: Add APT Repository
+  apt_repository:
+    repo: "deb https://apt.grafana.com stable main"
+    state: present
+
+- name: Install Grafana
+  apt:
+    name: grafana
+    state: present
+    update_cache: yes
+
+- name: Get Public IP Address
+  community.general.ipify_facts:
+
+- name: Generate Self-signed SSL Certificate
+  command: openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /etc/grafana/selfsigned.key \
+    -out /etc/grafana/selfsigned.crt \
+    -subj "/CN={{ ansible_facts.ipify_public_ip }}"
+
+- name: Set Permissions On The SSL Certificate And Key
+  file:
+    path: "{{ item }}"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  loop:
+    - /etc/grafana/selfsigned.key
+    - /etc/grafana/selfsigned.crt
+
+- name: Create Grafana Config File
+  copy:
+    dest: /etc/grafana/grafana.ini
+    content: |
+      [server]
+      # Protocol (http, https, h2, socket)
+      protocol = https
+
+      # https certs & key file
+      cert_file = /etc/grafana/selfsigned.crt
+      cert_key = /etc/grafana/selfsigned.key
+
+      [security]
+      # default admin user, created on startup
+      admin_user = {{ GRAFANA_USER }}
+
+      # default admin password, can be changed before first start of grafana,  or in profile settings
+      admin_password = {{ GRAFANA_PASSWORD }}
+
+- name: Start And Enable Grafana Service
+  systemd:
+    name: grafana-server
+    enabled: yes
+    state: started 
+
+- name: Wait For 15 Seconds
+  pause:
+    seconds: 15
+
+- name: Add Prometheus Data Source
+  community.grafana.grafana_datasource:
+    name: Prometheus
+    ds_type: prometheus
+    ds_url: http://localhost:9090
+    url_username: '{{ GRAFANA_USER }}'
+    url_password: '{{ GRAFANA_PASSWORD }}'
+    url: https://localhost:3000
+    validate_certs: false
+    uid: prometheus_datasource_01
+    access: proxy
+    is_default: true
+    state: present
+
+- name: Add Loki Data Source
+  community.grafana.grafana_datasource:
+    name: Loki
+    ds_type: loki
+    url_username: '{{ GRAFANA_USER }}'
+    url_password: '{{ GRAFANA_PASSWORD }}'
+    ds_url: http://localhost:3100
+    url: https://localhost:3000
+    validate_certs: false
+    uid: loki_datasource_01
+    access: proxy
+    state: present
+
+- name: Copy Grafana Endpoint Monitoring Dashboard
+  copy:
+    src: ../config/dashboards/endpoint-monitoring-dashboard.json
+    dest: /tmp/endpoint-monitoring-dashboard.json
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Import Grafana Endpoint Monitoring Dashboard
+  community.grafana.grafana_dashboard:
+    url_username: '{{ GRAFANA_USER }}'
+    url_password: '{{ GRAFANA_PASSWORD }}'
+    url: "https://localhost:3000"
+    validate_certs: false
+    path: /tmp/endpoint-monitoring-dashboard.json
+    overwrite: true
+    state: present
+
+- name: Copy Virtual Machine Logs Dashboard
+  copy:
+    src: ../config/dashboards/virtual-machine-logs-dashboard.json
+    dest: /tmp/virtual-machine-logs-dashboard.json
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Import Virtual Machine Logs Dashboard
+  community.grafana.grafana_dashboard:
+    url_username: '{{ GRAFANA_USER }}'
+    url_password: '{{ GRAFANA_PASSWORD }}'
+    url: "https://localhost:3000"
+    validate_certs: false
+    path: /tmp/virtual-machine-logs-dashboard.json
+    overwrite: true
+    state: present
+
+- name: Copy Upload/Downlaod Logs Dashboard
+  copy:
+    src: ../config/dashboards/upload-download-dashboard.json
+    dest: /tmp/upload-download-dashboard.json
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Import Upload/Download Logs Dashboard
+  community.grafana.grafana_dashboard:
+    url_username: '{{ GRAFANA_USER }}'
+    url_password: '{{ GRAFANA_PASSWORD }}'
+    url: "https://localhost:3000"
+    validate_certs: false
+    path: /tmp/upload-download-dashboard.json
+    overwrite: true
+    state: present
+
+- name: Copy Virtual Machine Metrics Dashboard
+  copy:
+    src: ../config/dashboards/virtual-machine-metrics.dashboard.json
+    dest: /tmp/virtual-machine-metrics.dashboard.json
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Import Virtual Machine Metrics Dashboard
+  community.grafana.grafana_dashboard:
+    url_username: '{{ GRAFANA_USER }}'
+    url_password: '{{ GRAFANA_PASSWORD }}'
+    url: "https://localhost:3000"
+    validate_certs: false
+    path: /tmp/virtual-machine-metrics.dashboard.json
+    overwrite: true
+    state: present
+
+- name: Restart Grafana Service To Apply Changes
+  systemd:
+    name: grafana-server
+    state: restarted

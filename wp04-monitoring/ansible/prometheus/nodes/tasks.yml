@@ -1,0 +1,22 @@
+---
+- name: Add GPG Key
+  apt_key:
+    url: https://apt.grafana.com/gpg.key
+    state: present
+
+- name: Add APT Repository
+  apt_repository:
+    repo: "deb https://apt.grafana.com stable main"
+    state: present
+
+- name: Install Prometheus Node Exporter
+  apt:
+    name: prometheus-node-exporter
+    state: present
+    update_cache: yes
+
+- name: Start And Enable Prometheus Node Exporter Service
+  systemd:
+    name: prometheus-node-exporter
+    enabled: yes
+    state: started

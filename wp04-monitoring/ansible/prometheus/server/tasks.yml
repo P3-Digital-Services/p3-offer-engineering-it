@@ -1,0 +1,241 @@
+---
+- name: Add GPG Key
+  apt_key:
+    url: https://apt.grafana.com/gpg.key
+    state: present
+
+- name: Add APT Repository
+  apt_repository:
+    repo: "deb https://apt.grafana.com stable main"
+    state: present
+
+- name: Install Prometheus
+  apt:
+    name: prometheus
+    state: present
+    update_cache: yes
+
+- name: Create Prometheus Config File
+  copy:
+    dest: /etc/prometheus/prometheus.yml
+    content: |
+      global:
+        scrape_interval:     5s
+        evaluation_interval: 5s
+
+      alerting:
+        alertmanagers:
+        - static_configs:
+          - targets: ['localhost:9093']
+
+      rule_files:
+          - '/etc/prometheus/alertmanager_templates/*.yml'
+
+      scrape_configs:
+
+        - job_name: "vmgrafanacariadmonitoringdemo"
+          scrape_interval: 5s
+          static_configs:
+            - targets: ["{{ PRIVATE_IP_VM7 }}:9100"]
+
+        - job_name: 'vm1cariadmonitoringdemo'
+          scrape_interval: 5s
+          scrape_timeout: 5s
+          static_configs:
+            - targets: ['{{ PRIVATE_IP_VM1 }}:9100']
+
+        - job_name: "vm2cariadmonitoringdemo"
+          scrape_interval: 5s
+          static_configs:
+            - targets: ['{{ PRIVATE_IP_VM2 }}:9100']
+
+        - job_name: "vm3cariadmonitoringdemo"
+          scrape_interval: 5s
+          static_configs:
+            - targets: ['{{ PRIVATE_IP_VM3 }}:9100']
+
+        - job_name: "vm4cariadmonitoringdemo"
+          scrape_interval: 5s
+          static_configs:
+            - targets: ['{{ PRIVATE_IP_VM4 }}:9100']
+
+        - job_name: "vm5cariadmonitoringdemo"
+          scrape_interval: 5s
+          static_configs:
+            - targets: ['{{ PRIVATE_IP_VM5 }}:9100']
+
+        - job_name: "vm6cariadmonitoringdemo"
+          scrape_interval: 5s
+          static_configs:
+            - targets: ['{{ PRIVATE_IP_VM6 }}:9100']
+
+        - job_name: 'blackbox_tls_status'
+          metrics_path: /probe
+          params:
+            module: [http_tls]  # Use the http_tls module
+          static_configs:
+            - targets:
+              - https://{{ PUBLIC_IP_VM1 }}
+              - https://{{ PUBLIC_IP_VM2 }}
+              - https://{{ PUBLIC_IP_VM3 }}
+              - https://{{ PUBLIC_IP_VM4 }}
+              - https://{{ PUBLIC_IP_VM5 }}
+              - https://{{ PUBLIC_IP_VM6 }}
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: __param_target
+            - source_labels: [__param_target]
+              target_label: instance
+            - target_label: __address__
+              replacement: localhost:9115  # Blackbox Exporter's address
+
+        - job_name: 'flask_speed_status'
+          tls_config:
+            insecure_skip_verify: true
+          metrics_path: /metrics
+          scrape_interval: 1s
+          static_configs:
+            - targets:
+              - {{ PUBLIC_IP_VM1 }}
+              - {{ PUBLIC_IP_VM2 }}
+              - {{ PUBLIC_IP_VM3 }}
+              - {{ PUBLIC_IP_VM4 }}
+              - {{ PUBLIC_IP_VM5 }}
+              - {{ PUBLIC_IP_VM6 }}
+
+        - job_name: "alertmanager"
+          scrape_interval: 5s
+          static_configs:
+            - targets: ["localhost:9093"]
+
+- name: Start And Enable Prometheus Service
+  systemd:
+    name: prometheus
+    enabled: yes
+    state: started
+
+- name: Install Prometheus Alertmanager
+  apt:
+    name: prometheus-alertmanager
+    state: present
+    update_cache: yes
+
+- name: Start And Enable Prometheus Alertmanager Service
+  systemd:
+    name: prometheus-alertmanager
+    enabled: yes
+    state: started
+
+- name: Copy Prometheus Node Exporter Alerts Config File
+  copy:
+    dest: /etc/prometheus/alertmanager_templates/alert-rules-config.yml
+    content: |
+      groups:
+      - name: SystemMetrics
+        rules:
+          - alert: HighCpuUsage
+            expr: "(sum by (instance) (avg by (mode, instance) (rate(node_cpu_seconds_total{mode!=\"idle\"}[2m]))) > 0.8) * on(instance) group_left (nodename) node_uname_info{nodename=~\".+\"}"
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage (instance {{ '{{' }} $labels.instance {{ '}}' }})"
+              description: "CPU usage is above 80%\n  VALUE = {{ '{{' }} $value {{ '}}' }}\n  LABELS = {{ '{{' }} $labels {{ '}}' }}"
+
+          - alert: LowDiskSpace
+            expr: "((node_filesystem_avail_bytes * 100) / node_filesystem_size_bytes < 20 and ON (instance, device, mountpoint) node_filesystem_readonly == 0) * on(instance) group_left (nodename) node_uname_info{nodename=~\".+\"}"
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Low disk space (instance {{ '{{' }} $labels.instance {{ '}}' }})"
+              description: "Disk space is below 20%\n  VALUE = {{ '{{' }} $value {{ '}}' }}\n  LABELS = {{ '{{' }} $labels {{ '}}' }}"
+
+          - alert: HighMemoryUsage
+            expr: "(node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 20) * on(instance) group_left (nodename) node_uname_info{nodename=~\".+\"}"
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "High memory usage (instance {{ '{{' }} $labels.instance {{ '}}' }})"
+              description: "Memory usage is above 80%\n  VALUE = {{ '{{' }} $value {{ '}}' }}\n  LABELS = {{ '{{' }} $labels {{ '}}' }}"
+
+      - name: BlackboxExporter
+        rules:
+          - alert: SSLValidityUnder30Days
+            expr: "probe_ssl_earliest_cert_expiry - time() < 30 * 24 * 3600"
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "SSL certificate expiring soon (instance {{ '{{' }} $labels.instance {{ '}}' }})"
+              description: "The SSL certificate for {{ '{{' }} $labels.instance {{ '}}' }} is expiring in less than 30 days.\n  VALUE = {{ '{{' }} $value {{ '}}' }}\n  LABELS = {{ '{{' }} $labels {{ '}}' }}"
+
+          - alert: EndpointDown
+            expr: "probe_success == 0"
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Endpoint down (instance {{ '{{' }} $labels.instance {{ '}}' }})"
+              description: "The endpoint {{ '{{' }} $labels.instance {{ '}}' }} is down.\n  VALUE = {{ '{{' }} $value {{ '}}' }}\n  LABELS = {{ '{{' }} $labels {{ '}}' }}"
+
+          - alert: EndpointAvailabilityReport
+            expr: "probe_success"
+            for: 24h
+            labels:
+              severity: info
+            annotations:
+              summary: "Daily availability report for {{ '{{' }} $labels.instance {{ '}}' }}"
+              description: "The endpoint {{ '{{' }} $labels.instance {{ '}}' }} has been up for the past 24 hours.\n  VALUE = {{ '{{' }} $value {{ '}}' }}\n  LABELS = {{ '{{' }} $labels {{ '}}' }}"
+
+- name: Restart Prometheus Alertmanager Service To Apply Changes
+  systemd:
+    name: prometheus-alertmanager
+    state: restarted
+
+- name: Restart Prometheus Service To Apply Changes
+  systemd:
+    name: prometheus
+    state: restarted
+
+- name: Install Prometheus BlackBox
+  apt:
+    name: prometheus-blackbox-exporter
+    state: present
+    update_cache: yes
+
+- name: Start And Enable Prometheus BlackBox Service
+  systemd:
+    name: prometheus-blackbox-exporter
+    enabled: yes
+    state: started
+
+- name: Create Prometheus BlackBox Config File
+  copy:
+    dest: /etc/prometheus/blackbox.yml
+    content: |
+      modules:
+        http_2xx:
+          prober: http
+          timeout: 5s
+          http:
+            valid_http_versions: ["HTTP/1.1", "HTTP/2"]
+            valid_status_codes: []  # Defaults to 2xx
+            method: GET
+            fail_if_ssl: false
+            fail_if_not_ssl: false
+            preferred_ip_protocol: "ip4"  # IPv4 only
+        http_tls:
+          prober: http
+          timeout: 5s
+          http:
+            fail_if_not_ssl: true
+            preferred_ip_protocol: "ip4"
+            tls_config:
+              insecure_skip_verify: true
+
+- name: Restart Prometheus BlackBox Service To Apply Changes
+  systemd:
+    name: prometheus-blackbox-exporter
+    state: restarted

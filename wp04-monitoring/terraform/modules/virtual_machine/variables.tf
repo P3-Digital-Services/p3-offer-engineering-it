@@ -1,0 +1,12 @@
+variable "location" {}
+variable "tags" {}
+variable "name" {}
+variable "resource_group_name" {}
+variable "subnet_id" {}
+variable "zone" {}
+variable "size" {}
+variable "admin_username" {}
+variable "disk_size_gb" {}
+variable "public_ip_address" {}
+variable "admin_password" {}
+variable "private_ip_address" {}
